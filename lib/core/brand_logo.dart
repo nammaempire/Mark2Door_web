@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'm2d_mark.dart';
 import 'theme.dart';
 
-/// mart2door logo: bag icon tile + wordmark.
-/// Swap the icon tile for an `Image.asset` once the real logo is ready.
+/// mart2door logo: the "m2d" mark on a white tile, with the wordmark.
 class BrandLogo extends StatelessWidget {
   const BrandLogo({super.key, this.size = 88, this.showWordmark = true});
 
@@ -29,28 +29,8 @@ class BrandLogo extends StatelessWidget {
               ),
             ],
           ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              Icon(
-                Icons.shopping_bag_rounded,
-                size: size * 0.56,
-                color: AppColors.primary,
-              ),
-              Positioned(
-                right: size * 0.14,
-                top: size * 0.14,
-                child: Container(
-                  width: size * 0.2,
-                  height: size * 0.2,
-                  decoration: const BoxDecoration(
-                    color: AppColors.accent,
-                    shape: BoxShape.circle,
-                  ),
-                ),
-              ),
-            ],
-          ),
+          alignment: Alignment.center,
+          child: M2dMark(width: size * 0.7),
         ),
         if (showWordmark) ...[
           SizedBox(height: size * 0.2),

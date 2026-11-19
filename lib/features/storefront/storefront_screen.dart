@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/banner_art.dart';
+import '../../core/emoji_picker.dart';
 import '../../core/providers.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -38,7 +40,9 @@ class StorefrontScreen extends ConsumerWidget {
           data: (s) => _SettingsForm(
             key: ValueKey(
               '${s.deliveryFeePaise}-${s.freeDeliveryThresholdPaise}-'
-              '${s.deliveryEtaMinutes}',
+              '${s.deliveryEtaMinutes}-${s.handlingFeeEnabled}-'
+              '${s.handlingFeePaise}-${s.rainFeeEnabled}-${s.rainFeePaise}-'
+              '${s.storeName}-${s.storeAddress}-${s.supportEmail}',
             ),
             settings: s,
           ),
@@ -126,6 +130,20 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
   late final _eta = TextEditingController(
     text: '${widget.settings.deliveryEtaMinutes}',
   );
+  late final _handling = TextEditingController(
+    text: paiseToRupeesText(widget.settings.handlingFeePaise),
+  );
+  late final _rain = TextEditingController(
+    text: paiseToRupeesText(widget.settings.rainFeePaise),
+  );
+  late final _storeName =
+      TextEditingController(text: widget.settings.storeName);
+  late final _storeAddress =
+      TextEditingController(text: widget.settings.storeAddress);
+  late final _supportEmail =
+      TextEditingController(text: widget.settings.supportEmail);
+  late bool _handlingOn = widget.settings.handlingFeeEnabled;
+  late bool _rainOn = widget.settings.rainFeeEnabled;
   bool _saving = false;
 
   @override
@@ -133,12 +151,24 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
     _fee.dispose();
     _threshold.dispose();
     _eta.dispose();
+    _handling.dispose();
+    _rain.dispose();
+    _storeName.dispose();
+    _storeAddress.dispose();
+    _supportEmail.dispose();
     super.dispose();
   }
 
   String? _money(String? v) => parseRupeesToPaise(v ?? '') == null
       ? 'Enter an amount like 30 or 29.50'
       : null;
+
+  /// An enabled charge must be a real amount, or it would show as ₹0.
+  String? _charge(String? v) {
+    final paise = parseRupeesToPaise(v ?? '');
+    if (paise == null) return 'Enter an amount like 5 or 9.50';
+    return paise == 0 ? 'Must be more than 0' : null;
+  }
 
   String? _minutes(String? v) {
     final n = int.tryParse(v ?? '');
@@ -154,6 +184,14 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
               deliveryFeePaise: parseRupeesToPaise(_fee.text)!,
               freeDeliveryThresholdPaise: parseRupeesToPaise(_threshold.text)!,
               deliveryEtaMinutes: int.parse(_eta.text),
+              handlingFeeEnabled: _handlingOn,
+              // A switched-off charge keeps its last amount for next time.
+              handlingFeePaise: parseRupeesToPaise(_handling.text) ?? 0,
+              rainFeeEnabled: _rainOn,
+              rainFeePaise: parseRupeesToPaise(_rain.text) ?? 0,
+              storeName: _storeName.text.trim(),
+              storeAddress: _storeAddress.text.trim(),
+              supportEmail: _supportEmail.text.trim(),
             ),
           );
       if (mounted) showMessage(context, 'Delivery settings saved');
@@ -235,6 +273,112 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
                 ),
               ],
             ),
+            const SizedBox(height: 20),
+            const Text(
+              'Extra charges',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Added to every order while switched on. Customers only see a '
+              'charge that is on.',
+              style: TextStyle(fontSize: 13, color: AppColors.textMuted),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 16,
+              runSpacing: 12,
+              children: [
+                _ChargeControl(
+                  keyName: 'handling',
+                  title: 'Handling fee',
+                  hint: 'Packing and handling',
+                  enabled: _handlingOn,
+                  controller: _handling,
+                  onToggle: (v) => setState(() => _handlingOn = v),
+                  validator: (v) => _handlingOn ? _charge(v) : null,
+                ),
+                _ChargeControl(
+                  keyName: 'rain',
+                  title: 'Rain charge',
+                  hint: 'Switch on when it rains',
+                  enabled: _rainOn,
+                  controller: _rain,
+                  onToggle: (v) => setState(() => _rainOn = v),
+                  validator: (v) => _rainOn ? _charge(v) : null,
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Store and support',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Riders see the store name and address as their pickup '
+              'point. Customers can write to the support email from the '
+              'help page.',
+              style: TextStyle(fontSize: 13, color: AppColors.textMuted),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                SizedBox(
+                  width: 250,
+                  child: TextFormField(
+                    key: const ValueKey('setting-store-name'),
+                    controller: _storeName,
+                    maxLength: 40,
+                    decoration: const InputDecoration(
+                      labelText: 'Store name',
+                      counterText: '',
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 420,
+                  child: TextFormField(
+                    key: const ValueKey('setting-store-address'),
+                    controller: _storeAddress,
+                    maxLength: 160,
+                    decoration: const InputDecoration(
+                      labelText: 'Store address',
+                      helperText: 'Used for "Navigate to store"',
+                      counterText: '',
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 300,
+                  child: TextFormField(
+                    key: const ValueKey('setting-support-email'),
+                    controller: _supportEmail,
+                    keyboardType: TextInputType.emailAddress,
+                    validator: (v) {
+                      final email = v?.trim() ?? '';
+                      if (email.isEmpty) return null;
+                      return RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
+                              .hasMatch(email)
+                          ? null
+                          : 'Enter a valid email address';
+                    },
+                    decoration: const InputDecoration(
+                      labelText: 'Support email',
+                      helperText: 'Leave empty to hide the email button',
+                    ),
+                  ),
+                ),
+              ],
+            ),
             const SizedBox(height: 16),
             SizedBox(
               width: 160,
@@ -251,6 +395,89 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
   }
 }
 
+/// On/off switch with the amount for one optional order charge.
+class _ChargeControl extends StatelessWidget {
+  const _ChargeControl({
+    required this.keyName,
+    required this.title,
+    required this.hint,
+    required this.enabled,
+    required this.controller,
+    required this.onToggle,
+    required this.validator,
+  });
+
+  final String keyName;
+  final String title;
+  final String hint;
+  final bool enabled;
+  final TextEditingController controller;
+  final ValueChanged<bool> onToggle;
+  final String? Function(String?) validator;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 330,
+      padding: const EdgeInsets.fromLTRB(14, 10, 10, 12),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textDark,
+                      ),
+                    ),
+                    Text(
+                      enabled ? 'On: added to orders' : 'Off: not charged',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color:
+                            enabled ? AppColors.success : AppColors.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Switch(
+                key: ValueKey('setting-$keyName-switch'),
+                value: enabled,
+                onChanged: onToggle,
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            key: ValueKey('setting-$keyName'),
+            controller: controller,
+            enabled: enabled,
+            validator: validator,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[\d.]'))],
+            decoration: InputDecoration(
+              labelText: 'Amount',
+              helperText: hint,
+              prefixText: '₹ ',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// Miniature of the banner as it appears in the app.
 class BannerPreview extends StatelessWidget {
   const BannerPreview({
@@ -259,6 +486,7 @@ class BannerPreview extends StatelessWidget {
     required this.subtitle,
     required this.emoji,
     required this.colors,
+    this.layout = 'classic',
     this.width = 250,
   });
 
@@ -266,61 +494,21 @@ class BannerPreview extends StatelessWidget {
   final String subtitle;
   final String emoji;
   final List<Color> colors;
+  final String layout;
   final double width;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
+    return SizedBox(
       width: width,
-      height: width * 0.48,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: colors,
-        ),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  title.isEmpty ? 'Banner title' : title,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 15,
-                    height: 1.2,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  subtitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Color(0xE6FFFFFF),
-                    fontSize: 11,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Text(
-            emoji,
-            style: const TextStyle(
-              fontSize: 44,
-              fontFamilyFallback: ['Noto Color Emoji'],
-            ),
-          ),
-        ],
+      // Same proportions as the card on a typical phone.
+      height: width * 0.5,
+      child: BannerArt(
+        title: title.isEmpty ? 'Banner title' : title,
+        subtitle: subtitle,
+        emoji: emoji,
+        colors: colors,
+        layout: layout,
       ),
     );
   }
@@ -358,6 +546,7 @@ class _BannerRow extends ConsumerWidget {
                   subtitle: banner.subtitle,
                   emoji: banner.emoji,
                   colors: banner.colors,
+                  layout: banner.layout,
                   width: 210,
                 ),
               ),
@@ -438,7 +627,13 @@ class _BannerDialogState extends ConsumerState<_BannerDialog> {
   final _formKey = GlobalKey<FormState>();
   late final _title = TextEditingController(text: widget.banner?.title);
   late final _subtitle = TextEditingController(text: widget.banner?.subtitle);
-  late final _emoji = TextEditingController(text: widget.banner?.emoji ?? '🛒');
+  late String _emoji = (widget.banner?.emoji.isEmpty ?? true)
+      ? '🛒'
+      : widget.banner!.emoji;
+  // An old banner may carry a design key that no longer exists.
+  late String _layout = kBannerLayouts.containsKey(widget.banner?.layout)
+      ? widget.banner!.layout
+      : kBannerLayouts.keys.first;
   // An old banner may carry a theme key that no longer exists.
   late String _theme = kBannerThemes.containsKey(widget.banner?.theme)
       ? widget.banner!.theme
@@ -453,7 +648,6 @@ class _BannerDialogState extends ConsumerState<_BannerDialog> {
   void dispose() {
     _title.dispose();
     _subtitle.dispose();
-    _emoji.dispose();
     super.dispose();
   }
 
@@ -464,8 +658,9 @@ class _BannerDialogState extends ConsumerState<_BannerDialog> {
       id: widget.banner?.id ?? '',
       title: _title.text.trim(),
       subtitle: _subtitle.text.trim(),
-      emoji: _emoji.text.trim(),
+      emoji: _emoji,
       theme: _theme,
+      layout: _layout,
       categoryId: _categoryId,
       active: widget.banner?.active ?? true,
       sortOrder: widget.banner?.sortOrder ?? 0,
@@ -487,12 +682,24 @@ class _BannerDialogState extends ConsumerState<_BannerDialog> {
   String? _required(String? v) =>
       (v?.trim().isEmpty ?? true) ? 'Required' : null;
 
+  Widget _sectionLabel(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 10),
+        child: Text(
+          text,
+          style: const TextStyle(
+            fontWeight: FontWeight.w700,
+            color: AppColors.textDark,
+          ),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
+    final colors = kBannerThemes[_theme] ?? kBannerThemes.values.first;
     return AlertDialog(
       title: Text(widget.banner == null ? 'Add banner' : 'Edit banner'),
       content: SizedBox(
-        width: 480,
+        width: 560,
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -504,9 +711,10 @@ class _BannerDialogState extends ConsumerState<_BannerDialog> {
                   child: BannerPreview(
                     title: _title.text,
                     subtitle: _subtitle.text,
-                    emoji: _emoji.text,
-                    colors: kBannerThemes[_theme] ?? kBannerThemes.values.first,
-                    width: 300,
+                    emoji: _emoji,
+                    colors: colors,
+                    layout: _layout,
+                    width: 320,
                   ),
                 ),
                 const SizedBox(height: 18),
@@ -541,27 +749,43 @@ class _BannerDialogState extends ConsumerState<_BannerDialog> {
                     ),
                     const SizedBox(width: 14),
                     SizedBox(
-                      width: 100,
-                      child: TextFormField(
-                        controller: _emoji,
-                        validator: _required,
-                        onChanged: (_) => setState(() {}),
-                        decoration: const InputDecoration(labelText: 'Emoji'),
+                      width: 120,
+                      child: EmojiPickerField(
+                        key: const ValueKey('banner-emoji'),
+                        value: _emoji,
+                        onChanged: (v) => setState(() => _emoji = v),
                       ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 6),
-                const Text(
-                  'Colour',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w700,
-                    color: AppColors.textDark,
-                  ),
-                ),
-                const SizedBox(height: 10),
+                _sectionLabel('Design'),
                 Wrap(
-                  spacing: 12,
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final entry in kBannerLayouts.entries)
+                      _LayoutChoice(
+                        key: ValueKey('layout-${entry.key}'),
+                        label: entry.value,
+                        selected: entry.key == _layout,
+                        onTap: () => setState(() => _layout = entry.key),
+                        preview: BannerPreview(
+                          title: 'Title',
+                          subtitle: 'Subtitle',
+                          emoji: _emoji,
+                          colors: colors,
+                          layout: entry.key,
+                          width: 150,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 18),
+                _sectionLabel('Colour'),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
                   children: [
                     for (final entry in kBannerThemes.entries)
                       Tooltip(
@@ -571,11 +795,15 @@ class _BannerDialogState extends ConsumerState<_BannerDialog> {
                           customBorder: const CircleBorder(),
                           onTap: () => setState(() => _theme = entry.key),
                           child: Container(
-                            width: 40,
-                            height: 40,
+                            width: 36,
+                            height: 36,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              gradient: LinearGradient(colors: entry.value),
+                              gradient: LinearGradient(
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                                colors: entry.value,
+                              ),
                               border: Border.all(
                                 color: entry.key == _theme
                                     ? AppColors.textDark
@@ -583,6 +811,13 @@ class _BannerDialogState extends ConsumerState<_BannerDialog> {
                                 width: 3,
                               ),
                             ),
+                            child: entry.key == _theme
+                                ? const Icon(
+                                    Icons.check_rounded,
+                                    size: 18,
+                                    color: Colors.white,
+                                  )
+                                : null,
                           ),
                         ),
                       ),
@@ -624,6 +859,57 @@ class _BannerDialogState extends ConsumerState<_BannerDialog> {
           child: Text(_saving ? 'Saving…' : 'Save'),
         ),
       ],
+    );
+  }
+}
+
+/// One selectable banner design: a small preview with its name.
+class _LayoutChoice extends StatelessWidget {
+  const _LayoutChoice({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.preview,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget preview;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(6),
+        decoration: BoxDecoration(
+          color: selected ? AppColors.primarySoft : null,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: selected ? AppColors.primary : AppColors.border,
+            width: selected ? 2 : 1,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // The preview is a picture here, not a control.
+            ExcludeSemantics(child: preview),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                color: selected ? AppColors.primary : AppColors.textDark,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../features/areas/service_areas_screen.dart';
 import '../features/auth/login_screen.dart';
 import '../features/categories/categories_screen.dart';
+import '../features/content/content_screen.dart';
 import '../features/customers/customers_screen.dart';
 import '../features/dashboard/dashboard_screen.dart';
 import '../features/orders/orders_screen.dart';
@@ -26,6 +27,7 @@ abstract final class Routes {
   static const riders = '/riders';
   static const reports = '/reports';
   static const storefront = '/storefront';
+  static const content = '/content';
 }
 
 final routerProvider = Provider<GoRouter>((ref) {
@@ -62,6 +64,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             (Routes.riders, const RidersScreen()),
             (Routes.reports, const ReportsScreen()),
             (Routes.storefront, const StorefrontScreen()),
+            (Routes.content, const ContentScreen()),
           ])
             GoRoute(
               path: path,

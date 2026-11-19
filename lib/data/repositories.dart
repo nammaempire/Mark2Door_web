@@ -50,6 +50,42 @@ abstract interface class OrdersAdminRepository {
 
   /// Pass null to unassign.
   Future<void> assignRider(String orderId, Rider? rider);
+
+  /// Records that the money for a cancelled, paid order was returned.
+  Future<void> markRefunded(String orderId);
+
+  /// Does the wallet work an order is waiting for (see
+  /// `Order.needsSettlement`): pays the inviter's reward when an invited
+  /// customer's first order is delivered, and returns wallet money spent
+  /// on an order that was cancelled. Safe to call more than once.
+  Future<void> settle(Order order);
+}
+
+/// Help questions and legal pages shown in the customer app.
+abstract interface class ContentAdminRepository {
+  /// Ordered by `sortOrder`.
+  Stream<List<Faq>> watchFaqs();
+
+  /// Creates when `faq.id` is empty, otherwise updates.
+  Future<void> saveFaq(Faq faq);
+
+  Future<void> deleteFaq(String faqId);
+
+  /// Every page that has been written, keyed by its id.
+  Stream<Map<String, LegalPage>> watchPages();
+
+  Future<void> savePage(String pageId, String body);
+
+  /// The customer app then shows the page as not available.
+  Future<void> deletePage(String pageId);
+}
+
+/// Uploads a product photo chosen from this computer.
+abstract interface class ImageUploader {
+  /// Opens the file chooser, uploads the picked image and returns its
+  /// public link; null when the admin closes the chooser without picking.
+  /// Throws [AdminFailure] when the file is unsuitable or the upload fails.
+  Future<String?> pickAndUpload();
 }
 
 abstract interface class ServiceAreaAdminRepository {

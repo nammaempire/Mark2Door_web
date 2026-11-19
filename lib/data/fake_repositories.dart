@@ -346,6 +346,20 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
     ]);
   }
 
+  @override
+  Future<void> markRefunded(String orderId) async {
+    _orders.set([
+      for (final o in _orders.value)
+        o.id == orderId
+            ? o.copyWith(paymentStatus: PaymentStatus.refunded)
+            : o,
+    ]);
+  }
+
+  /// Sample data has no wallets, so there is nothing to settle.
+  @override
+  Future<void> settle(Order order) async {}
+
   static const _customers = [
     (
       'Ananya Rao',
@@ -612,4 +626,55 @@ class FakeRidersAdminRepository implements RidersAdminRepository {
   Future<void> deleteRider(String riderId) async {
     _riders.set(_riders.value.where((r) => r.id != riderId).toList());
   }
+}
+
+class FakeContentAdminRepository implements ContentAdminRepository {
+  final _faqs = _Store<List<Faq>>(const [
+    Faq(
+      id: 'f1',
+      question: 'How long does delivery take?',
+      answer: 'Most orders arrive within the time shown on the home page.',
+    ),
+    Faq(
+      id: 'f2',
+      question: 'How do I pay?',
+      answer: 'Pay online at checkout, or with cash when your order arrives.',
+      sortOrder: 1,
+    ),
+  ]);
+  final _pages = _Store<Map<String, LegalPage>>(const {});
+  int _seq = 10;
+
+  @override
+  Stream<List<Faq>> watchFaqs() => _faqs.watch();
+
+  @override
+  Future<void> saveFaq(Faq faq) async {
+    if (faq.id.isEmpty) {
+      final next = _faqs.value.fold(-1, (m, f) => f.sortOrder > m ? f.sortOrder : m);
+      _faqs.set([
+        ..._faqs.value,
+        faq.copyWith(id: 'f${++_seq}', sortOrder: next + 1),
+      ]);
+    } else {
+      _faqs.set([for (final f in _faqs.value) f.id == faq.id ? faq : f]);
+    }
+  }
+
+  @override
+  Future<void> deleteFaq(String faqId) async =>
+      _faqs.set(_faqs.value.where((f) => f.id != faqId).toList());
+
+  @override
+  Stream<Map<String, LegalPage>> watchPages() => _pages.watch();
+
+  @override
+  Future<void> savePage(String pageId, String body) async => _pages.set({
+        ..._pages.value,
+        pageId: LegalPage(id: pageId, body: body, updatedAt: DateTime.now()),
+      });
+
+  @override
+  Future<void> deletePage(String pageId) async =>
+      _pages.set({..._pages.value}..remove(pageId));
 }

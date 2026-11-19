@@ -311,13 +311,33 @@ class _StatusMenu extends StatelessWidget {
   }
 }
 
-class _OrderDialog extends StatelessWidget {
+class _OrderDialog extends ConsumerWidget {
   const _OrderDialog({required this.order});
 
   final Order order;
 
+  Future<void> _markRefunded(BuildContext context, WidgetRef ref) async {
+    final ok = await confirm(
+      context,
+      title: 'Mark ${order.displayId} as refunded?',
+      message:
+          'Do this after you have returned ${formatPaise(order.totalPaise)} '
+          'to the customer. They will see the order as refunded.',
+      action: 'Mark refunded',
+    );
+    if (!ok || !context.mounted) return;
+    try {
+      await ref.read(ordersRepositoryProvider).markRefunded(order.id);
+      if (!context.mounted) return;
+      Navigator.of(context).pop();
+      showMessage(context, '${order.displayId} marked refunded');
+    } catch (_) {
+      if (context.mounted) showMessage(context, "Couldn't update that order.");
+    }
+  }
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return AlertDialog(
       title: Row(
         children: [
@@ -359,7 +379,23 @@ class _OrderDialog extends StatelessWidget {
                     ? 'FREE'
                     : formatPaise(order.deliveryFeePaise),
               ),
+              if (order.handlingFeePaise > 0)
+                _line('Handling fee', formatPaise(order.handlingFeePaise)),
+              if (order.rainFeePaise > 0)
+                _line('Rain charge', formatPaise(order.rainFeePaise)),
               _line('Total', formatPaise(order.totalPaise), bold: true),
+              if (order.walletAppliedPaise > 0) ...[
+                _line(
+                  'Paid from m2d wallet',
+                  '- ${formatPaise(order.walletAppliedPaise)}',
+                ),
+                _line(
+                  order.paymentMethod == PaymentMethod.cod
+                      ? 'Cash to collect'
+                      : 'Paid online',
+                  formatPaise(order.payablePaise),
+                ),
+              ],
               _line('Payment', order.paymentLabel),
               _line('Rider', order.riderName ?? 'Not assigned'),
               const Divider(height: 24),
@@ -378,6 +414,13 @@ class _OrderDialog extends StatelessWidget {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Close'),
         ),
+        if (order.needsRefund)
+          FilledButton(
+            key: const ValueKey('mark-refunded-button'),
+            onPressed: () => _markRefunded(context, ref),
+            style: FilledButton.styleFrom(minimumSize: const Size(150, 48)),
+            child: const Text('Mark refunded'),
+          ),
       ],
     );
   }

@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/providers.dart';
 import '../../core/router.dart';
 import '../../core/theme.dart';
+import '../../models/order.dart';
 
 @immutable
 class _NavItem {
@@ -24,6 +25,7 @@ const _items = [
   _NavItem('Riders', Icons.delivery_dining_rounded, Routes.riders),
   _NavItem('Reports', Icons.bar_chart_rounded, Routes.reports),
   _NavItem('Storefront', Icons.storefront_rounded, Routes.storefront),
+  _NavItem('Help and legal', Icons.help_center_rounded, Routes.content),
   _NavItem('Service areas', Icons.location_on_rounded, Routes.areas),
 ];
 
@@ -36,6 +38,20 @@ class AdminShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    // Wallet work is done here because this console is the only trusted
+    // place that sees every order: whenever orders change, pay any invite
+    // reward that a delivered order has earned and return wallet money
+    // from cancelled ones. Each order is settled once.
+    ref.listen(ordersProvider, (_, next) {
+      final repo = ref.read(ordersRepositoryProvider);
+      for (final order in next.valueOrNull ?? const <Order>[]) {
+        if (order.needsSettlement) {
+          // A failure is retried the next time the order list updates.
+          repo.settle(order).catchError((Object _) {});
+        }
+      }
+    });
+
     final wide = MediaQuery.sizeOf(context).width >= 960;
     final sidebar = _Sidebar(location: location, inDrawer: !wide);
 

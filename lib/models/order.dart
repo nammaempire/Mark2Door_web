@@ -8,7 +8,7 @@ enum PaymentMethod {
   final String label;
 }
 
-enum PaymentStatus { pending, paid, failed }
+enum PaymentStatus { pending, paid, failed, refunded }
 
 /// Lifecycle shared with the customer and delivery apps.
 enum OrderStatus {
@@ -98,6 +98,12 @@ class Order {
     required this.paymentStatus,
     required this.status,
     required this.createdAt,
+    this.handlingFeePaise = 0,
+    this.rainFeePaise = 0,
+    this.userId = '',
+    this.walletAppliedPaise = 0,
+    this.referralChecked = false,
+    this.walletRefunded = false,
     this.riderId,
     this.riderName,
     this.riderPhone,
@@ -107,7 +113,23 @@ class Order {
   final List<OrderItem> items;
   final int subtotalPaise;
   final int deliveryFeePaise;
+
+  /// Extra charges that were switched on when the order was placed.
+  final int handlingFeePaise;
+  final int rainFeePaise;
   final int totalPaise;
+
+  /// Customer who placed the order.
+  final String userId;
+
+  /// Part of [totalPaise] the customer paid from their m2d wallet.
+  final int walletAppliedPaise;
+
+  /// Set once this order has been checked for an invite reward.
+  final bool referralChecked;
+
+  /// Set once wallet money on a cancelled order has been returned.
+  final bool walletRefunded;
   final Address address;
   final PaymentMethod paymentMethod;
   final PaymentStatus paymentStatus;
@@ -137,12 +159,33 @@ class Order {
       (paymentMethod == PaymentMethod.cod ||
           paymentStatus == PaymentStatus.paid);
 
-  String get paymentLabel => switch ((paymentMethod, paymentStatus)) {
+  String get paymentLabel => needsRefund ? 'Refund due' : _paymentLabel;
+
+  String get _paymentLabel => switch ((paymentMethod, paymentStatus)) {
     (PaymentMethod.cod, _) => 'COD',
     (_, PaymentStatus.paid) => 'Paid online',
     (_, PaymentStatus.pending) => 'Payment pending',
     (_, PaymentStatus.failed) => 'Payment failed',
+    (_, PaymentStatus.refunded) => 'Refunded',
   };
+
+  /// Still to be collected online or in cash after the wallet.
+  int get payablePaise => totalPaise - walletAppliedPaise;
+
+  /// Whether the admin console still has wallet work to do for this order:
+  /// an invite reward to check, or wallet money to return.
+  bool get needsSettlement =>
+      (status == OrderStatus.delivered && !referralChecked) ||
+      (status == OrderStatus.cancelled &&
+          walletAppliedPaise > 0 &&
+          !walletRefunded);
+
+  /// A paid online order that was cancelled: the customer is owed their
+  /// money back until the admin records the refund.
+  bool get needsRefund =>
+      status == OrderStatus.cancelled &&
+      paymentMethod == PaymentMethod.online &&
+      paymentStatus == PaymentStatus.paid;
 
   /// Returns a copy with the rider replaced; pass nulls to unassign.
   Order withRider({String? id, String? name, String? phone}) => Order(
@@ -150,6 +193,12 @@ class Order {
     items: items,
     subtotalPaise: subtotalPaise,
     deliveryFeePaise: deliveryFeePaise,
+    handlingFeePaise: handlingFeePaise,
+    rainFeePaise: rainFeePaise,
+    userId: userId,
+    walletAppliedPaise: walletAppliedPaise,
+    referralChecked: referralChecked,
+    walletRefunded: walletRefunded,
     totalPaise: totalPaise,
     address: address,
     paymentMethod: paymentMethod,
@@ -161,15 +210,21 @@ class Order {
     riderPhone: phone,
   );
 
-  Order copyWith({OrderStatus? status}) => Order(
+  Order copyWith({OrderStatus? status, PaymentStatus? paymentStatus}) => Order(
     id: id,
     items: items,
     subtotalPaise: subtotalPaise,
     deliveryFeePaise: deliveryFeePaise,
+    handlingFeePaise: handlingFeePaise,
+    rainFeePaise: rainFeePaise,
+    userId: userId,
+    walletAppliedPaise: walletAppliedPaise,
+    referralChecked: referralChecked,
+    walletRefunded: walletRefunded,
     totalPaise: totalPaise,
     address: address,
     paymentMethod: paymentMethod,
-    paymentStatus: paymentStatus,
+    paymentStatus: paymentStatus ?? this.paymentStatus,
     status: status ?? this.status,
     createdAt: createdAt,
     riderId: riderId,
@@ -184,6 +239,12 @@ class Order {
         .toList(growable: false),
     subtotalPaise: (map['subtotalPaise'] as num?)?.toInt() ?? 0,
     deliveryFeePaise: (map['deliveryFeePaise'] as num?)?.toInt() ?? 0,
+    handlingFeePaise: (map['handlingFeePaise'] as num?)?.toInt() ?? 0,
+    rainFeePaise: (map['rainFeePaise'] as num?)?.toInt() ?? 0,
+    userId: map['userId'] as String? ?? '',
+    walletAppliedPaise: (map['walletAppliedPaise'] as num?)?.toInt() ?? 0,
+    referralChecked: map['referralChecked'] as bool? ?? false,
+    walletRefunded: map['walletRefunded'] as bool? ?? false,
     totalPaise: (map['totalPaise'] as num?)?.toInt() ?? 0,
     address: Address.fromMap(
       Map<String, dynamic>.from((map['address'] as Map?) ?? const {}),

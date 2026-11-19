@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -33,6 +34,14 @@ final catalogRepositoryProvider = Provider<CatalogAdminRepository>((ref) {
   return Env.useFirebase
       ? FirestoreCatalogAdminRepository(FirebaseFirestore.instance)
       : FakeCatalogAdminRepository();
+});
+
+/// Photo upload from this computer; null on sample data, where products
+/// take photo links only.
+final imageUploaderProvider = Provider<ImageUploader?>((ref) {
+  return Env.useFirebase
+      ? FirebaseImageUploader(FirebaseStorage.instance)
+      : null;
 });
 
 final ordersRepositoryProvider = Provider<OrdersAdminRepository>((ref) {
@@ -73,6 +82,20 @@ final ridersRepositoryProvider = Provider<RidersAdminRepository>((ref) {
 
 final bannersProvider = StreamProvider<List<PromoBanner>>(
   (ref) => ref.watch(storefrontRepositoryProvider).watchBanners(),
+);
+
+final contentRepositoryProvider = Provider<ContentAdminRepository>((ref) {
+  return Env.useFirebase
+      ? FirestoreContentAdminRepository(FirebaseFirestore.instance)
+      : FakeContentAdminRepository();
+});
+
+final faqsProvider = StreamProvider<List<Faq>>(
+  (ref) => ref.watch(contentRepositoryProvider).watchFaqs(),
+);
+
+final legalPagesProvider = StreamProvider<Map<String, LegalPage>>(
+  (ref) => ref.watch(contentRepositoryProvider).watchPages(),
 );
 
 final storeSettingsProvider = StreamProvider<StoreSettings>(

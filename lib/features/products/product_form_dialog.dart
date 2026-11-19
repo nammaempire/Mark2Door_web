@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/emoji_picker.dart';
 import '../../core/providers.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
@@ -50,8 +51,14 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
         ? ''
         : paiseToRupeesText(widget.product!.mrpPaise),
   );
-  late final _emoji = TextEditingController(text: widget.product?.emoji);
-  late final _imageUrl = TextEditingController(text: widget.product?.imageUrl);
+  late String _emoji = widget.product?.emoji ?? '';
+  /// One field per photo link, in display order; the first is the main
+  /// photo. At most [Product.maxImages].
+  late final List<TextEditingController> _images = [
+    for (final url in widget.product?.imageUrls ?? const <String>[])
+      TextEditingController(text: url),
+  ];
+  bool _uploading = false;
   late final _description = TextEditingController(
     text: widget.product?.description,
   );
@@ -70,13 +77,147 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
       _unit,
       _price,
       _mrp,
-      _emoji,
-      _imageUrl,
       _description,
+      ..._images,
     ]) {
       c.dispose();
     }
     super.dispose();
+  }
+
+  bool get _canAddPhoto => _images.length < Product.maxImages;
+
+  void _addPhotoField([String url = '']) {
+    if (!_canAddPhoto) return;
+    setState(() => _images.add(TextEditingController(text: url)));
+  }
+
+  void _removePhotoField(int index) {
+    final removed = _images[index];
+    setState(() => _images.removeAt(index));
+    // Disposed after the frame so the field being removed is not using it.
+    WidgetsBinding.instance.addPostFrameCallback((_) => removed.dispose());
+  }
+
+  Future<void> _upload(ImageUploader uploader) async {
+    if (_uploading || !_canAddPhoto) return;
+    setState(() => _uploading = true);
+    try {
+      final url = await uploader.pickAndUpload();
+      if (mounted && url != null) _addPhotoField(url);
+    } on AdminFailure catch (e) {
+      if (mounted) showMessage(context, e.message);
+    } catch (_) {
+      if (mounted) showMessage(context, "Couldn't upload that image.");
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
+  }
+
+  String? _photoLink(String? v) {
+    final url = v?.trim() ?? '';
+    if (url.isEmpty) return null;
+    final uri = Uri.tryParse(url);
+    return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty
+        ? null
+        : 'Must be an https:// link';
+  }
+
+  /// Up to five photos for the product page slider.
+  List<Widget> _photoSection() {
+    final uploader = ref.watch(imageUploaderProvider);
+    return [
+      Text(
+        'Photos (${_images.length} of ${Product.maxImages})',
+        style: const TextStyle(
+          fontWeight: FontWeight.w700,
+          color: AppColors.textDark,
+        ),
+      ),
+      const SizedBox(height: 2),
+      const Text(
+        'Customers swipe through these on the product page. The first one '
+        'is also used in lists.',
+        style: TextStyle(fontSize: 13, color: AppColors.textMuted),
+      ),
+      const SizedBox(height: 10),
+      for (final (i, controller) in _images.indexed)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: Container(
+                  width: 52,
+                  height: 52,
+                  color: AppColors.primarySoft,
+                  child: ListenableBuilder(
+                    listenable: controller,
+                    builder: (context, _) =>
+                        _photoLink(controller.text) != null ||
+                                controller.text.trim().isEmpty
+                            ? const Icon(
+                                Icons.image_outlined,
+                                color: AppColors.textMuted,
+                              )
+                            : Image.network(
+                                controller.text.trim(),
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.broken_image_outlined,
+                                  color: AppColors.textMuted,
+                                ),
+                              ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextFormField(
+                  key: ValueKey('product-image-$i'),
+                  controller: controller,
+                  keyboardType: TextInputType.url,
+                  validator: _photoLink,
+                  decoration: InputDecoration(
+                    labelText: i == 0 ? 'Main photo link' : 'Photo ${i + 1} link',
+                    hintText: 'https://',
+                  ),
+                ),
+              ),
+              IconButton(
+                key: ValueKey('remove-image-$i'),
+                tooltip: 'Remove photo',
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () => _removePhotoField(i),
+              ),
+            ],
+          ),
+        ),
+      Wrap(
+        spacing: 10,
+        runSpacing: 8,
+        children: [
+          OutlinedButton.icon(
+            key: const ValueKey('add-image-link'),
+            onPressed: _canAddPhoto ? _addPhotoField : null,
+            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+            icon: const Icon(Icons.link_rounded),
+            label: const Text('Add photo link'),
+          ),
+          if (uploader != null)
+            OutlinedButton.icon(
+              key: const ValueKey('upload-image'),
+              onPressed:
+                  _canAddPhoto && !_uploading ? () => _upload(uploader) : null,
+              style: OutlinedButton.styleFrom(minimumSize: const Size(0, 44)),
+              icon: const Icon(Icons.upload_rounded),
+              label: Text(_uploading ? 'Uploading…' : 'Upload photo'),
+            ),
+        ],
+      ),
+    ];
   }
 
   String? _required(String? v) =>
@@ -109,8 +250,11 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
       unit: _unit.text.trim(),
       pricePaise: parseRupeesToPaise(_price.text)!,
       mrpPaise: parseRupeesToPaise(_mrp.text)!,
-      emoji: _emoji.text.trim(),
-      imageUrl: _imageUrl.text.trim(),
+      emoji: _emoji,
+      imageUrls: [
+        for (final c in _images)
+          if (c.text.trim().isNotEmpty) c.text.trim(),
+      ],
       description: _description.text.trim(),
       inStock: _inStock,
     );
@@ -245,35 +389,31 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
                   children: [
                     SizedBox(
                       width: 120,
-                      child: TextFormField(
-                        controller: _emoji,
-                        decoration: const InputDecoration(
-                          labelText: 'Emoji',
-                          hintText: '🍌',
-                        ),
+                      child: EmojiPickerField(
+                        key: const ValueKey('product-emoji'),
+                        value: _emoji,
+                        allowNone: true,
+                        onChanged: (v) => setState(() => _emoji = v),
                       ),
                     ),
                     const SizedBox(width: 14),
-                    Expanded(
-                      child: TextFormField(
-                        controller: _imageUrl,
-                        keyboardType: TextInputType.url,
-                        validator: (v) {
-                          final url = v?.trim() ?? '';
-                          if (url.isEmpty) return null;
-                          final uri = Uri.tryParse(url);
-                          return uri != null && uri.scheme == 'https'
-                              ? null
-                              : 'Must be an https:// link';
-                        },
-                        decoration: const InputDecoration(
-                          labelText: 'Photo link (optional)',
-                          hintText: 'https://',
+                    const Expanded(
+                      child: Padding(
+                        padding: EdgeInsets.only(top: 6),
+                        child: Text(
+                          'Shown when the product has no photo, and while '
+                          'photos load.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: AppColors.textMuted,
+                          ),
                         ),
                       ),
                     ),
                   ],
                 ),
+                const SizedBox(height: 16),
+                ..._photoSection(),
                 const SizedBox(height: 14),
                 TextFormField(
                   controller: _description,

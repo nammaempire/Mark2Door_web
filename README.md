@@ -10,7 +10,8 @@ flutter pub get
 flutter run -d chrome
 ```
 
-With no extra flags it runs in **sample-data mode** (no backend needed):
+The console uses Firebase by default. To try it without a backend, run
+`flutter run -d chrome --dart-define=USE_FIREBASE=false` for **sample-data mode**:
 
 | What     | Sample-data value                         |
 | -------- | ----------------------------------------- |
@@ -72,10 +73,10 @@ apps cannot drift apart.
 | `products/{id}`           | all fields                                     | customer app |
 | `categories/{id}`         | `name`, `icon` (key from `kCategoryIcons`)     | customer app |
 | `service_areas/{pincode}` | `active`                                       | customer app |
-| `banners/{id}`            | `title`, `subtitle`, `emoji`, `theme`, `categoryId`, `active`, `sortOrder` | customer app |
-| `settings/store`          | `deliveryFeePaise`, `freeDeliveryThresholdPaise`, `deliveryEtaMinutes` | customer app |
+| `banners/{id}`            | `title`, `subtitle`, `emoji`, `theme`, `layout`, `categoryId`, `active`, `sortOrder` | customer app |
+| `settings/store`          | `deliveryFeePaise`, `freeDeliveryThresholdPaise`, `deliveryEtaMinutes`, `handlingFeeEnabled`, `handlingFeePaise`, `rainFeeEnabled`, `rainFeePaise` | customer app |
 | `riders/{id}`             | `name`, `phone`, `active`                      | delivery app (to come) |
-| `orders/{id}`             | `status`, `riderId`, `riderName`, `riderPhone` | customer and delivery apps |
+| `orders/{id}`             | `status`, `riderId`, `riderName`, `riderPhone`, `paymentStatus` (`refunded` only) | customer and delivery apps |
 
 Category artwork keys and banner colour themes are fixed lists that exist
 in both apps (`lib/models/storefront.dart` here, `CategoryStyle` and
@@ -112,8 +113,9 @@ firebase deploy --only hosting
 
 ## Not included yet
 
-- Photo upload (products take a photo link for now; upload needs Firebase
-  Storage).
+- Photo upload works once Firebase Storage is enabled (Blaze plan) and
+  `firebase deploy --only storage` has published `storage.rules`. Until
+  then, add photos as links (up to 5 per product).
 - Reordering banners by drag and drop (new banners go to the end).
 - Staff accounts with different access levels.
 - Reports and the customer list are computed from the latest 2,000 orders.
