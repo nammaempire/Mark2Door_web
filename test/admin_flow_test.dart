@@ -218,9 +218,9 @@ void main() {
       find.byKey(const ValueKey('banner-subtitle')),
       'Milk, curd and eggs',
     );
-    await tester.ensureVisible(find.byKey(const ValueKey('theme-blue')));
+    await tester.ensureVisible(find.byKey(const ValueKey('theme-plum')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('theme-blue')));
+    await tester.tap(find.byKey(const ValueKey('theme-plum')));
     await tester.tap(find.byKey(const ValueKey('save-banner-button')));
     await tester.pumpAndSettle();
     expect(find.text('Banner saved'), findsOneWidget);

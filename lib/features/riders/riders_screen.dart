@@ -92,7 +92,7 @@ class RidersScreen extends ConsumerWidget {
                               StatusPill(
                                 r.active ? 'Available' : 'Off duty',
                                 r.active
-                                    ? AppColors.primary
+                                    ? AppColors.success
                                     : AppColors.textMuted,
                               ),
                               const SizedBox(width: 8),

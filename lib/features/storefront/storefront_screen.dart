@@ -389,7 +389,7 @@ class _BannerRow extends ConsumerWidget {
             children: [
               StatusPill(
                 banner.active ? 'Showing' : 'Hidden',
-                banner.active ? AppColors.primary : AppColors.textMuted,
+                banner.active ? AppColors.success : AppColors.textMuted,
               ),
               const SizedBox(width: 8),
               Switch(
@@ -439,7 +439,10 @@ class _BannerDialogState extends ConsumerState<_BannerDialog> {
   late final _title = TextEditingController(text: widget.banner?.title);
   late final _subtitle = TextEditingController(text: widget.banner?.subtitle);
   late final _emoji = TextEditingController(text: widget.banner?.emoji ?? '🛒');
-  late String _theme = widget.banner?.theme ?? kBannerThemes.keys.first;
+  // An old banner may carry a theme key that no longer exists.
+  late String _theme = kBannerThemes.containsKey(widget.banner?.theme)
+      ? widget.banner!.theme
+      : kBannerThemes.keys.first;
   late String _categoryId = widget.categories
           .any((c) => c.id == widget.banner?.categoryId)
       ? widget.banner!.categoryId
@@ -502,7 +505,7 @@ class _BannerDialogState extends ConsumerState<_BannerDialog> {
                     title: _title.text,
                     subtitle: _subtitle.text,
                     emoji: _emoji.text,
-                    colors: kBannerThemes[_theme]!,
+                    colors: kBannerThemes[_theme] ?? kBannerThemes.values.first,
                     width: 300,
                   ),
                 ),

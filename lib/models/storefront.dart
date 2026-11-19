@@ -23,11 +23,11 @@ String categoryEmoji(String icon) => kCategoryIcons[icon]?.emoji ?? '🛒';
 /// Banner colour themes. Keys are stored in `banners/{id}.theme` and must
 /// match `bannerColors` in the customer app.
 const kBannerThemes = <String, List<Color>>{
-  'green': [Color(0xFF1FA463), Color(0xFF0A6B40)],
-  'orange': [Color(0xFFFF9D3C), Color(0xFFEE5A0B)],
-  'purple': [Color(0xFF7C5CFF), Color(0xFF4B2FCB)],
-  'blue': [Color(0xFF2F9BFF), Color(0xFF155FCB)],
-  'pink': [Color(0xFFFF6FA3), Color(0xFFD42A6B)],
+  'maroon': [Color(0xFFA3203F), Color(0xFF5A0A1C)],
+  'rose': [Color(0xFFE0607B), Color(0xFFA8243F)],
+  'plum': [Color(0xFF8E2A5B), Color(0xFF55103A)],
+  'berry': [Color(0xFFC2185B), Color(0xFF7A0F3A)],
+  'coral': [Color(0xFFF0766A), Color(0xFFC23B4E)],
 };
 
 /// Mirrors `banners/{id}`: a promo card on the customer home page.
@@ -56,7 +56,9 @@ class PromoBanner {
   final bool active;
   final int sortOrder;
 
-  List<Color> get colors => kBannerThemes[theme] ?? kBannerThemes['green']!;
+  /// Unknown or legacy theme keys fall back to maroon.
+  List<Color> get colors =>
+      kBannerThemes[theme] ?? kBannerThemes['maroon']!;
 
   PromoBanner copyWith({String? id, bool? active, int? sortOrder}) =>
       PromoBanner(
@@ -76,7 +78,7 @@ class PromoBanner {
         title: map['title'] as String? ?? '',
         subtitle: map['subtitle'] as String? ?? '',
         emoji: map['emoji'] as String? ?? '',
-        theme: map['theme'] as String? ?? 'green',
+        theme: map['theme'] as String? ?? 'maroon',
         categoryId: map['categoryId'] as String? ?? '',
         active: map['active'] as bool? ?? true,
         sortOrder: (map['sortOrder'] as num?)?.toInt() ?? 0,

@@ -1,17 +1,24 @@
 import 'package:flutter/material.dart';
 
 abstract final class AppColors {
-  static const Color primary = Color(0xFF0E7A4B);
-  static const Color primaryDark = Color(0xFF075C37);
-  static const Color primarySoft = Color(0xFFE4F3EB);
+  // Brand: maroon on light pink.
+  static const Color primary = Color(0xFF800020);
+  static const Color primaryLight = Color(0xFF9F1D3F);
+  static const Color primaryDark = Color(0xFF5A0A1C);
+  static const Color primarySoft = Color(0xFFF9DFE5);
   static const Color accent = Color(0xFFFF8A1F);
   static const Color accentSoft = Color(0xFFFFF1E0);
   static const Color accentDark = Color(0xFFB85A00);
-  static const Color background = Color(0xFFF6F8F7);
+  static const Color background = Color(0xFFFFF0F3);
   static const Color surface = Colors.white;
-  static const Color textDark = Color(0xFF14231C);
-  static const Color textMuted = Color(0xFF6B7A72);
-  static const Color border = Color(0xFFDDE5E0);
+  static const Color textDark = Color(0xFF2A1218);
+  static const Color textMuted = Color(0xFF7A656A);
+  static const Color border = Color(0xFFEBD6DB);
+
+  // Meaning, not brand. Success stays green because the brand colour is
+  // close to red and would read as an error on "delivered" or "paid".
+  static const Color success = Color(0xFF1E9E62);
+  static const Color successSoft = Color(0xFFE3F4EC);
   static const Color danger = Color(0xFFD64545);
   static const Color warning = Color(0xFFE0A100);
 }

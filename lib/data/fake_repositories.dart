@@ -547,9 +547,9 @@ class FakeServiceAreaAdminRepository implements ServiceAreaAdminRepository {
 class FakeStorefrontAdminRepository implements StorefrontAdminRepository {
   /// Same three banners the customer app ships with.
   final _banners = _Store<List<PromoBanner>>(const [
-    PromoBanner(id: 'b1', title: 'Farm fresh\nfruits & veggies', subtitle: 'Up to 25% off today', emoji: '🥦', theme: 'green', categoryId: 'fruits', sortOrder: 0),
-    PromoBanner(id: 'b2', title: 'Monthly staples\nat mart prices', subtitle: 'Atta, rice, dal and oil', emoji: '🛒', theme: 'orange', categoryId: 'staples', sortOrder: 1),
-    PromoBanner(id: 'b3', title: 'Snack time\nfavourites', subtitle: 'Chips, biscuits and more', emoji: '🍿', theme: 'purple', categoryId: 'snacks', sortOrder: 2),
+    PromoBanner(id: 'b1', title: 'Farm fresh\nfruits & veggies', subtitle: 'Up to 25% off today', emoji: '🥦', theme: 'maroon', categoryId: 'fruits', sortOrder: 0),
+    PromoBanner(id: 'b2', title: 'Monthly staples\nat mart prices', subtitle: 'Atta, rice, dal and oil', emoji: '🛒', theme: 'rose', categoryId: 'staples', sortOrder: 1),
+    PromoBanner(id: 'b3', title: 'Snack time\nfavourites', subtitle: 'Chips, biscuits and more', emoji: '🍿', theme: 'plum', categoryId: 'snacks', sortOrder: 2),
   ]);
   final _settings = _Store<StoreSettings>(StoreSettings.defaults);
   int _seq = 10;

@@ -80,7 +80,7 @@ class _Sidebar extends ConsumerWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [Color(0xFF0F8552), AppColors.primaryDark],
+          colors: [AppColors.primaryLight, AppColors.primaryDark],
         ),
       ),
       child: SafeArea(

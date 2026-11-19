@@ -113,7 +113,7 @@ class _ServiceAreasScreenState extends ConsumerState<ServiceAreasScreen> {
                         ),
                         StatusPill(
                           area.active ? 'Delivering' : 'Paused',
-                          area.active ? AppColors.primary : AppColors.textMuted,
+                          area.active ? AppColors.success : AppColors.textMuted,
                         ),
                         const SizedBox(width: 12),
                         Switch(

@@ -12,7 +12,7 @@ Color orderStatusColor(OrderStatus status) => switch (status) {
   OrderStatus.placed => AppColors.accentDark,
   OrderStatus.accepted => const Color(0xFF155FCB),
   OrderStatus.pickedUp => const Color(0xFF4B2FCB),
-  OrderStatus.delivered => AppColors.primary,
+  OrderStatus.delivered => AppColors.success,
   OrderStatus.cancelled => AppColors.danger,
 };
 
