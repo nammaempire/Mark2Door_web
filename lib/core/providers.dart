@@ -8,6 +8,7 @@ import '../data/fake_repositories.dart';
 import '../data/firebase_repositories.dart';
 import '../data/repositories.dart';
 import '../features/dashboard/revenue_stats.dart';
+import '../models/coupon.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import '../models/storefront.dart';
@@ -79,6 +80,16 @@ final ridersRepositoryProvider = Provider<RidersAdminRepository>((ref) {
       ? FirestoreRidersAdminRepository(FirebaseFirestore.instance)
       : FakeRidersAdminRepository();
 });
+
+final couponsRepositoryProvider = Provider<CouponsAdminRepository>((ref) {
+  return Env.useFirebase
+      ? FirestoreCouponsAdminRepository(FirebaseFirestore.instance)
+      : FakeCouponsAdminRepository();
+});
+
+final couponsProvider = StreamProvider<List<Coupon>>(
+  (ref) => ref.watch(couponsRepositoryProvider).watchCoupons(),
+);
 
 final bannersProvider = StreamProvider<List<PromoBanner>>(
   (ref) => ref.watch(storefrontRepositoryProvider).watchBanners(),

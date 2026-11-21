@@ -9,8 +9,10 @@ import 'package:mart2door_admin/features/auth/login_screen.dart';
 import 'package:mart2door_admin/features/dashboard/dashboard_screen.dart';
 import 'package:mart2door_admin/features/products/products_screen.dart';
 import 'package:mart2door_admin/data/fake_repositories.dart';
+import 'package:mart2door_admin/models/coupon.dart';
 import 'package:mart2door_admin/models/order.dart';
 import 'package:mart2door_admin/models/product.dart';
+import 'package:mart2door_admin/features/content/legal_drafts.dart';
 import 'package:mart2door_admin/models/storefront.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -482,12 +484,29 @@ void main() {
     final container = ProviderScope.containerOf(
       tester.element(find.byType(AdminApp)),
     );
-    expect(find.text('Not published. Customers see "not available".'),
-        findsNWidgets(2));
+    expect(
+      find.text('Not published. Open the pencil for a ready-made draft.'),
+      findsNWidgets(2),
+    );
 
     await tester.tap(find.byKey(const ValueKey('edit-page-terms')));
     await tester.pumpAndSettle();
-    // An empty page cannot be saved; deleting is the way to remove one.
+    // The editor opens with the draft, which still has blanks to fill, so
+    // it cannot be published as it stands.
+    final draft = tester
+        .widget<TextFormField>(find.byKey(const ValueKey('page-body')))
+        .controller!
+        .text;
+    expect(draft, startsWith('TERMS AND CONDITIONS'));
+    expect(draft, contains('[CITY]'));
+    expect(find.byKey(const ValueKey('placeholder-warning')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('save-page-button')));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Replace the details'), findsOneWidget);
+    expect(container.read(legalPagesProvider).requireValue, isEmpty);
+
+    // An empty page cannot be saved either; deleting is how one is removed.
+    await tester.enterText(find.byKey(const ValueKey('page-body')), '');
     await tester.tap(find.byKey(const ValueKey('save-page-button')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Write the page'), findsOneWidget);
@@ -687,6 +706,285 @@ void main() {
     await tester.tap(find.text('Suresh Kumar').last);
     await tester.pumpAndSettle();
     expect(find.textContaining('assigned to Suresh Kumar'), findsOneWidget);
+  });
+
+  testWidgets('orders show a rider\'s rejection reason and slow acceptance', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-/orders')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Placed'));
+    await tester.pumpAndSettle();
+
+    // Handed back by a rider and not yet given to anyone else.
+    expect(find.text('Rejected: Bike has a puncture'), findsOneWidget);
+    // Assigned seven minutes ago and still not accepted.
+    expect(find.text('Not accepted · 7 min'), findsOneWidget);
+
+    // The full reason is on the order's detail.
+    // Opened by clicking the row: here, the order number on the same line.
+    final rowY =
+        tester.getCenter(find.text('Rejected: Bike has a puncture')).dy;
+    final orderNumber = find.byWidgetPredicate(
+      (w) => w is Text && (w.data ?? '').startsWith('#'),
+    );
+    final inRow = orderNumber.evaluate().firstWhere((e) {
+      final box = e.renderObject! as RenderBox;
+      final y = box.localToGlobal(box.size.center(Offset.zero)).dy;
+      return (y - rowY).abs() < 16;
+    });
+    await tester.tap(find.byWidget(inRow.widget));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('reject-reason')), findsOneWidget);
+    expect(find.textContaining('Rejected by Abdul Rahman'), findsOneWidget);
+  });
+
+  test('awaiting rider only when placed, assigned and past five minutes', () {
+    final now = DateTime(2026, 11, 20, 12);
+    Order order(String status, int? assignedMinutesAgo) => Order.fromMap('o', {
+      'status': status,
+      'riderId': assignedMinutesAgo == null ? null : 'r1',
+      'assignedAt': assignedMinutesAgo == null
+          ? null
+          : now
+                .subtract(Duration(minutes: assignedMinutesAgo))
+                .millisecondsSinceEpoch,
+      'rejectReason': 'Too far away',
+    });
+    expect(order('placed', 4).isAwaitingRiderAt(now), isFalse);
+    expect(order('placed', 5).isAwaitingRiderAt(now), isTrue);
+    expect(order('accepted', 9).isAwaitingRiderAt(now), isFalse);
+    expect(order('placed', null).isAwaitingRiderAt(now), isFalse);
+    // The reason shows as open only until another rider is assigned.
+    expect(order('placed', null).hasOpenRejection, isTrue);
+    expect(order('placed', 1).hasOpenRejection, isFalse);
+  });
+
+  test('legal drafts use the store details and flag what is left', () {
+    final today = DateTime(2026, 11, 20);
+    final bare = legalDraft(LegalPage.privacyId, null, today);
+    expect(bare, startsWith('PRIVACY POLICY'));
+    expect(bare, contains('Last updated: 20 November 2026'));
+    expect(bare, contains('[BUSINESS NAME]'));
+    expect(hasPlaceholder(bare), isTrue);
+
+    const settings = StoreSettings(
+      deliveryFeePaise: 0,
+      freeDeliveryThresholdPaise: 0,
+      deliveryEtaMinutes: 20,
+      storeName: 'Fresh Mart',
+      storeAddress: '80 Feet Road, Bengaluru',
+      supportEmail: 'help@freshmart.in',
+    );
+    final terms = legalDraft(LegalPage.termsId, settings, today);
+    expect(terms, contains('run by Fresh Mart, 80 Feet Road, Bengaluru'));
+    expect(terms, contains('writing to help@freshmart.in'));
+    expect(terms, isNot(contains('[BUSINESS NAME]')));
+    // City, phone and grievance officer are still for the admin to fill.
+    expect(hasPlaceholder(terms), isTrue);
+    expect(hasPlaceholder('Courts in Bengaluru have jurisdiction.'), isFalse);
+  });
+
+  testWidgets('riders show their rating; cash received clears what they owe', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-/riders')));
+    await tester.pumpAndSettle();
+
+    String text(String key) =>
+        tester.widget<Text>(find.byKey(ValueKey(key))).data!;
+    expect(text('rider-rating-r1'), matches(RegExp(r'^\d\.\d · \d+ ratings$')));
+    // The off-duty sample rider has delivered nothing.
+    expect(text('rider-rating-r3'), 'No ratings yet');
+    expect(text('rider-cash-r3'), 'Cash to hand over: ₹0');
+    expect(find.byKey(const ValueKey('cash-received-r3')), findsNothing);
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    final owed = container
+        .read(ordersProvider)
+        .requireValue
+        .where((o) => o.riderId == 'r1' && o.cashWithRider)
+        .fold(0, (sum, o) => sum + o.payablePaise);
+    expect(owed, greaterThan(0));
+
+    await tester.tap(find.byKey(const ValueKey('cash-received-r1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cash received').last);
+    await tester.pumpAndSettle();
+    expect(text('rider-cash-r1'), 'Cash to hand over: ₹0');
+    expect(find.byKey(const ValueKey('cash-received-r1')), findsNothing);
+    expect(
+      container
+          .read(ordersProvider)
+          .requireValue
+          .where((o) => o.riderId == 'r1' && o.cashWithRider),
+      isEmpty,
+    );
+  });
+
+  testWidgets('add a coupon, switch it off and delete it', (tester) async {
+    await _pumpApp(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-/coupons')));
+    await tester.pumpAndSettle();
+    expect(find.text('SAVE10'), findsOneWidget);
+    expect(find.text('10% off, up to ₹100'), findsOneWidget);
+    expect(find.textContaining('Once per customer'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('add-coupon-button')));
+    await tester.pumpAndSettle();
+
+    // A code that exists, and a percent above 100, are both refused.
+    await tester.enterText(find.byKey(const ValueKey('coupon-code')), 'save10');
+    await tester.enterText(find.byKey(const ValueKey('coupon-value')), '150');
+    await tester.tap(find.byKey(const ValueKey('save-coupon-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('This code already exists'), findsOneWidget);
+    expect(find.text('Enter 1 to 100'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const ValueKey('coupon-code')), 'diwali20');
+    await tester.enterText(find.byKey(const ValueKey('coupon-value')), '20');
+    await tester.enterText(
+      find.byKey(const ValueKey('coupon-max-discount')),
+      '75',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('coupon-min-order')),
+      '299',
+    );
+    await tester.ensureVisible(find.byKey(const ValueKey('coupon-once')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('coupon-once')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('save-coupon-button')));
+    await tester.pumpAndSettle();
+
+    // Saved in upper case, with its terms spelled out.
+    expect(find.text('DIWALI20'), findsOneWidget);
+    expect(find.text('20% off, up to ₹75'), findsOneWidget);
+    expect(
+      find.text(
+        'Item total of ₹299 or more · Once per customer · No expiry',
+      ),
+      findsOneWidget,
+    );
+    final status = find.byKey(const ValueKey('coupon-status-DIWALI20'));
+    expect(
+      find.descendant(of: status, matching: find.text('Active')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('coupon-active-DIWALI20')));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(of: status, matching: find.text('Switched off')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('delete-coupon-DIWALI20')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    expect(find.text('DIWALI20'), findsNothing);
+  });
+
+  test('coupons are saved the way the customer app reads them', () {
+    final coupon = Coupon(
+      code: 'FLAT50',
+      type: CouponType.flat,
+      value: 5000,
+      minOrderPaise: 19900,
+      expiresAt: DateTime(2026, 12, 31, 23, 59, 59),
+      oncePerCustomer: true,
+    );
+    final map = coupon.toMap();
+    expect(map['type'], 'flat');
+    expect(map['value'], 5000);
+    expect(map['oncePerCustomer'], isTrue);
+    final back = Coupon.fromMap('FLAT50', map);
+    expect(back.offer, '₹50 off');
+    expect(back.expiresAt, coupon.expiresAt);
+    expect(back.isExpiredAt(DateTime(2027)), isTrue);
+    expect(back.isExpiredAt(DateTime(2026, 12, 31, 12)), isFalse);
+    expect(Coupon.isValidCode('SAVE10'), isTrue);
+    expect(Coupon.isValidCode('SAVE 10'), isFalse);
+    expect(Coupon.isValidCode('AB'), isFalse);
+  });
+
+  testWidgets('a product keeps its subtitle and stock quantity', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-/products')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('add-product-button')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const ValueKey('product-name')), 'Apple');
+    await tester.enterText(
+      find.byKey(const ValueKey('product-subtitle')),
+      'Fresh from Ooty',
+    );
+    await tester.enterText(find.byKey(const ValueKey('product-unit')), '4 pcs');
+    await tester.enterText(find.byKey(const ValueKey('product-price')), '129');
+    await tester.enterText(find.byKey(const ValueKey('product-mrp')), '160');
+    await tester.ensureVisible(find.byKey(const ValueKey('product-stock')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('product-stock')), '8');
+    await tester.tap(find.byKey(const ValueKey('save-product-button')));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    final apple = (await container
+            .read(catalogRepositoryProvider)
+            .watchProducts()
+            .first)
+        .firstWhere((p) => p.name == 'Apple');
+    expect(apple.subtitle, 'Fresh from Ooty');
+    expect(apple.stockQty, 8);
+    expect(find.byKey(ValueKey('stock-left-${apple.id}')), findsOneWidget);
+  });
+
+  test('stock is saved for the customer app and counts as sold out at 0', () {
+    const apple = Product(
+      id: 'a',
+      name: 'Apple',
+      categoryId: 'fruits',
+      unit: '4 pcs',
+      pricePaise: 12900,
+      mrpPaise: 16000,
+      subtitle: 'Fresh from Ooty',
+      stockQty: 8,
+    );
+    final map = apple.toMap();
+    expect(map['stockQty'], 8);
+    expect(map['subtitle'], 'Fresh from Ooty');
+    expect(apple.canBeOrdered, isTrue);
+    expect(Product.fromMap('a', {...map, 'stockQty': 0}).canBeOrdered, isFalse);
+    // Not counted: saved as null, and there is no limit.
+    final uncounted = Product.fromMap('a', {...map, 'stockQty': null});
+    expect(uncounted.stockQty, isNull);
+    expect(uncounted.canBeOrdered, isTrue);
+  });
+
+  test('orders carry the coupon and who cancelled them', () {
+    final order = Order.fromMap('o1', const {
+      'totalPaise': 6780,
+      'subtotalPaise': 4200,
+      'deliveryFeePaise': 3000,
+      'couponCode': 'SAVE10',
+      'couponDiscountPaise': 420,
+      'status': 'cancelled',
+      'cancelledBy': 'customer',
+    });
+    expect(order.couponCode, 'SAVE10');
+    expect(order.couponDiscountPaise, 420);
+    expect(order.cancelledBy, 'customer');
   });
 
   testWidgets('sign out returns to the login page', (tester) async {

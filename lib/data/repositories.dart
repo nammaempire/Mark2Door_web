@@ -1,3 +1,4 @@
+import '../models/coupon.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import '../models/storefront.dart';
@@ -50,6 +51,11 @@ abstract interface class OrdersAdminRepository {
 
   /// Pass null to unassign.
   Future<void> assignRider(String orderId, Rider? rider);
+
+  /// Records that [riderId] handed over all the cash they were holding
+  /// from cash-on-delivery orders. Their app then shows nothing to hand
+  /// over until they collect cash again.
+  Future<void> markCashReceived(String riderId);
 
   /// Records that the money for a cancelled, paid order was returned.
   Future<void> markRefunded(String orderId);
@@ -120,4 +126,17 @@ abstract interface class RidersAdminRepository {
   Future<void> saveRider(Rider rider);
 
   Future<void> deleteRider(String riderId);
+}
+
+/// Discount codes customers type at checkout.
+abstract interface class CouponsAdminRepository {
+  /// Ordered by code.
+  Stream<List<Coupon>> watchCoupons();
+
+  /// Creates the coupon, or replaces the one with the same code.
+  Future<void> saveCoupon(Coupon coupon);
+
+  Future<void> setActive(String code, {required bool active});
+
+  Future<void> deleteCoupon(String code);
 }

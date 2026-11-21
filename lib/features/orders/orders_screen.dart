@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -9,12 +11,12 @@ import '../../models/order.dart';
 import '../../models/storefront.dart';
 
 Color orderStatusColor(OrderStatus status) => switch (status) {
-  OrderStatus.placed => AppColors.accentDark,
-  OrderStatus.accepted => const Color(0xFF155FCB),
-  OrderStatus.pickedUp => const Color(0xFF4B2FCB),
-  OrderStatus.delivered => AppColors.success,
-  OrderStatus.cancelled => AppColors.danger,
-};
+      OrderStatus.placed => AppColors.accentDark,
+      OrderStatus.accepted => const Color(0xFF155FCB),
+      OrderStatus.pickedUp => const Color(0xFF4B2FCB),
+      OrderStatus.delivered => AppColors.success,
+      OrderStatus.cancelled => AppColors.danger,
+    };
 
 class OrdersScreen extends ConsumerStatefulWidget {
   const OrdersScreen({super.key});
@@ -243,9 +245,8 @@ class _RiderMenu extends StatelessWidget {
     final label = Text(
       name ?? (order.isActive ? 'Assign' : '–'),
       style: TextStyle(
-        fontWeight: name == null && order.isActive
-            ? FontWeight.w700
-            : FontWeight.w400,
+        fontWeight:
+            name == null && order.isActive ? FontWeight.w700 : FontWeight.w400,
         color: name == null && order.isActive
             ? AppColors.primary
             : AppColors.textDark,
@@ -253,6 +254,26 @@ class _RiderMenu extends StatelessWidget {
     );
     // Riders are only chosen for orders that still need delivering.
     if (!order.isActive) return label;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _menu(label),
+        if (order.hasOpenRejection)
+          _RiderAlert(
+            key: ValueKey('rejected-${order.id}'),
+            text: 'Rejected: ${order.rejectReason}',
+            tooltip: '${order.rejectedByName ?? 'Rider'} rejected this order: '
+                '${order.rejectReason}',
+          )
+        else
+          _AwaitingRider(order: order),
+      ],
+    );
+  }
+
+  Widget _menu(Widget label) {
     return PopupMenuButton<Rider>(
       key: ValueKey('rider-${order.id}'),
       tooltip: 'Assign rider',
@@ -276,6 +297,130 @@ class _RiderMenu extends StatelessWidget {
           const Icon(Icons.arrow_drop_down_rounded, color: AppColors.textMuted),
         ],
       ),
+    );
+  }
+}
+
+/// The rider's proof-of-delivery photo. Clicking it opens a larger view
+/// that can be zoomed.
+class _DeliveryPhoto extends StatelessWidget {
+  const _DeliveryPhoto({required this.url});
+
+  final String url;
+
+  Widget _image({required BoxFit fit}) => Image.network(
+        url,
+        fit: fit,
+        loadingBuilder: (context, child, progress) => progress == null
+            ? child
+            : const Center(child: CircularProgressIndicator()),
+        errorBuilder: (context, error, stack) => const Center(
+          child: Text(
+            "Couldn't load the photo",
+            style: TextStyle(color: AppColors.textMuted),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      key: const ValueKey('delivery-photo'),
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => showDialog<void>(
+        context: context,
+        builder: (context) => Dialog(
+          clipBehavior: Clip.antiAlias,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 720, maxHeight: 720),
+            child: InteractiveViewer(child: _image(fit: BoxFit.contain)),
+          ),
+        ),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: SizedBox(
+          height: 180,
+          width: double.infinity,
+          child: ColoredBox(
+            color: AppColors.primarySoft,
+            child: _image(fit: BoxFit.cover),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Small red line under the rider's name in the orders table.
+class _RiderAlert extends StatelessWidget {
+  const _RiderAlert({super.key, required this.text, required this.tooltip});
+
+  final String text;
+  final String tooltip;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 190),
+        child: Text(
+          text,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(
+            fontSize: 11,
+            height: 1.1,
+            fontWeight: FontWeight.w700,
+            color: AppColors.danger,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Warns when the assigned rider has not accepted within five minutes.
+/// Checks the clock itself so the warning appears without a data change.
+class _AwaitingRider extends StatefulWidget {
+  const _AwaitingRider({required this.order});
+
+  final Order order;
+
+  @override
+  State<_AwaitingRider> createState() => _AwaitingRiderState();
+}
+
+class _AwaitingRiderState extends State<_AwaitingRider> {
+  late final Timer _clock;
+
+  @override
+  void initState() {
+    super.initState();
+    _clock = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => setState(() {}),
+    );
+  }
+
+  @override
+  void dispose() {
+    _clock.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = DateTime.now();
+    final order = widget.order;
+    if (!order.isAwaitingRiderAt(now)) return const SizedBox.shrink();
+    final minutes = now.difference(order.assignedAt!).inMinutes;
+    return _RiderAlert(
+      key: ValueKey('awaiting-${order.id}'),
+      text: 'Not accepted · $minutes min',
+      tooltip: '${order.riderName} has not accepted this order for '
+          '$minutes minutes. You can assign another rider.',
     );
   }
 }
@@ -383,6 +528,11 @@ class _OrderDialog extends ConsumerWidget {
                 _line('Handling fee', formatPaise(order.handlingFeePaise)),
               if (order.rainFeePaise > 0)
                 _line('Rain charge', formatPaise(order.rainFeePaise)),
+              if (order.couponDiscountPaise > 0)
+                _line(
+                  'Coupon ${order.couponCode ?? ''}'.trim(),
+                  '- ${formatPaise(order.couponDiscountPaise)}',
+                ),
               _line('Total', formatPaise(order.totalPaise), bold: true),
               if (order.walletAppliedPaise > 0) ...[
                 _line(
@@ -397,7 +547,59 @@ class _OrderDialog extends ConsumerWidget {
                 ),
               ],
               _line('Payment', order.paymentLabel),
+              if (order.status == OrderStatus.cancelled &&
+                  order.cancelledBy == 'customer')
+                _line('Cancelled by', 'Customer, in the app'),
               _line('Rider', order.riderName ?? 'Not assigned'),
+              if (order.riderRating != null)
+                _line('Delivery rating', '${order.riderRating} of 5 stars'),
+              if (order.status == OrderStatus.delivered &&
+                  order.paymentMethod == PaymentMethod.cod &&
+                  order.riderId != null)
+                _line(
+                  'Cash from rider',
+                  order.cashHandedOver ? 'Received' : 'With rider',
+                ),
+              if (order.status == OrderStatus.delivered)
+                _line(
+                  'Delivery photo',
+                  (order.deliveryPhotoUrl ?? '').isEmpty
+                      ? 'None'
+                      : 'Below · click to enlarge',
+                ),
+              if ((order.deliveryPhotoUrl ?? '').startsWith('http')) ...[
+                const SizedBox(height: 8),
+                _DeliveryPhoto(url: order.deliveryPhotoUrl!),
+              ],
+              if ((order.rejectReason ?? '').isNotEmpty) ...[
+                const SizedBox(height: 8),
+                Container(
+                  key: const ValueKey('reject-reason'),
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: AppColors.danger.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Rejected by '
+                        '${(order.rejectedByName ?? '').isEmpty ? 'rider' : order.rejectedByName}'
+                        '${order.rejectedAt == null ? '' : ' · ${formatOrderDate(order.rejectedAt!)}'}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.danger,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(order.rejectReason!),
+                    ],
+                  ),
+                ),
+              ],
               const Divider(height: 24),
               Text(
                 order.address.name,

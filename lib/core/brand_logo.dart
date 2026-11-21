@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'm2d_mark.dart';
 import 'theme.dart';
 
-/// mart2door logo: the "m2d" mark on a white tile, with the wordmark.
+/// mart2door logo: the M2D artwork on a white tile, with the wordmark.
 class BrandLogo extends StatelessWidget {
   const BrandLogo({super.key, this.size = 88, this.showWordmark = true});
 
@@ -30,7 +30,7 @@ class BrandLogo extends StatelessWidget {
             ],
           ),
           alignment: Alignment.center,
-          child: M2dMark(width: size * 0.7),
+          child: M2dMark(width: size * 0.8),
         ),
         if (showWordmark) ...[
           SizedBox(height: size * 0.2),

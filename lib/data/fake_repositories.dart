@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/env.dart';
+import '../models/coupon.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import '../models/storefront.dart';
@@ -31,7 +32,7 @@ class _Store<T> {
 
 class FakeAdminAuthRepository implements AdminAuthRepository {
   FakeAdminAuthRepository(this._prefs)
-    : _session = _Store(_prefs.getString(_key));
+      : _session = _Store(_prefs.getString(_key));
 
   static const _key = 'demo_admin_email';
   final SharedPreferences _prefs;
@@ -281,14 +282,16 @@ class FakeCatalogAdminRepository implements CatalogAdminRepository {
 
   @override
   Future<void> deleteCategory(String categoryId) async {
-    final used = _products.value.where((p) => p.categoryId == categoryId).length;
+    final used =
+        _products.value.where((p) => p.categoryId == categoryId).length;
     if (used > 0) {
       throw AdminFailure(
         '$used product${used == 1 ? '' : 's'} still use this category. '
         'Move or delete them first.',
       );
     }
-    _categories.set(_categories.value.where((c) => c.id != categoryId).toList());
+    _categories
+        .set(_categories.value.where((c) => c.id != categoryId).toList());
   }
 
   @override
@@ -321,7 +324,7 @@ class FakeCatalogAdminRepository implements CatalogAdminRepository {
 
 class FakeOrdersAdminRepository implements OrdersAdminRepository {
   FakeOrdersAdminRepository({DateTime? now})
-    : _orders = _Store(_generate(now ?? DateTime.now()));
+      : _orders = _Store(_generate(now ?? DateTime.now()));
 
   final _Store<List<Order>> _orders;
 
@@ -341,7 +344,22 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
     _orders.set([
       for (final o in _orders.value)
         o.id == orderId
-            ? o.withRider(id: rider?.id, name: rider?.name, phone: rider?.phone)
+            ? o.withRider(
+                id: rider?.id,
+                name: rider?.name,
+                phone: rider?.phone,
+                assignedAt: DateTime.now(),
+              )
+            : o,
+    ]);
+  }
+
+  @override
+  Future<void> markCashReceived(String riderId) async {
+    _orders.set([
+      for (final o in _orders.value)
+        o.riderId == riderId && o.cashWithRider
+            ? o.copyWith(cashHandedOver: true)
             : o,
     ]);
   }
@@ -350,9 +368,7 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
   Future<void> markRefunded(String orderId) async {
     _orders.set([
       for (final o in _orders.value)
-        o.id == orderId
-            ? o.copyWith(paymentStatus: PaymentStatus.refunded)
-            : o,
+        o.id == orderId ? o.copyWith(paymentStatus: PaymentStatus.refunded) : o,
     ]);
   }
 
@@ -396,8 +412,7 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
       final day = DateTime(now.year, now.month, now.day - daysAgo);
       final weekend = day.weekday >= DateTime.saturday;
       // Gentle growth over time plus a weekend bump.
-      final count =
-          1 +
+      final count = 1 +
           ((180 - daysAgo) / 45).floor() +
           rnd.nextInt(3) +
           (weekend ? 2 : 0);
@@ -442,10 +457,10 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
           status = minutesOld < 20
               ? OrderStatus.placed
               : minutesOld < 45
-              ? OrderStatus.accepted
-              : minutesOld < 90
-              ? OrderStatus.pickedUp
-              : OrderStatus.delivered;
+                  ? OrderStatus.accepted
+                  : minutesOld < 90
+                      ? OrderStatus.pickedUp
+                      : OrderStatus.delivered;
         }
 
         orders.add(
@@ -466,6 +481,31 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
             paymentStatus: payment,
             status: status,
             createdAt: at,
+            // Finished deliveries belong to one of the two sample riders.
+            // Most were rated, and cash older than two days was handed in.
+            riderId: status != OrderStatus.delivered
+                ? null
+                : seq.isEven
+                    ? 'r1'
+                    : 'r2',
+            riderName: status != OrderStatus.delivered
+                ? null
+                : seq.isEven
+                    ? 'Suresh Kumar'
+                    : 'Manjunath R',
+            riderPhone: status != OrderStatus.delivered
+                ? null
+                : seq.isEven
+                    ? '9900011111'
+                    : '9900022222',
+            riderRating: status != OrderStatus.delivered || seq % 10 >= 7
+                ? null
+                : seq % 9 == 0
+                    ? 3
+                    : seq % 4 == 0
+                        ? 4
+                        : 5,
+            cashHandedOver: daysAgo >= 2,
           ),
         );
       }
@@ -474,10 +514,13 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
     // Always include a few live orders, whatever the time of day, so status
     // changes and rider assignment can be tried in sample-data mode.
     const live = [
-      (5, OrderStatus.placed, null, null, null),
+      (8, OrderStatus.placed, 'r1', 'Suresh Kumar', '9900011111'),
       (14, OrderStatus.placed, null, null, null),
       (32, OrderStatus.accepted, 'r1', 'Suresh Kumar', '9900011111'),
       (58, OrderStatus.pickedUp, 'r2', 'Manjunath R', '9900022222'),
+      // Delivered for cash and not yet handed over, so there is always
+      // something to try Cash received on.
+      (130, OrderStatus.delivered, 'r1', 'Suresh Kumar', '9900011111'),
     ];
     for (final (i, entry) in live.indexed) {
       final product = catalog[(i * 5 + 1) % catalog.length];
@@ -512,6 +555,13 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
           riderId: entry.$3,
           riderName: entry.$4,
           riderPhone: entry.$5,
+          assignedAt: entry.$3 == null
+              ? null
+              : now.subtract(Duration(minutes: entry.$1 - 1)),
+          // One sample order has been handed back by a rider.
+          rejectReason: i == 1 ? 'Bike has a puncture' : null,
+          rejectedByName: i == 1 ? 'Abdul Rahman' : null,
+          rejectedAt: i == 1 ? now.subtract(const Duration(minutes: 6)) : null,
         ),
       );
     }
@@ -561,9 +611,30 @@ class FakeServiceAreaAdminRepository implements ServiceAreaAdminRepository {
 class FakeStorefrontAdminRepository implements StorefrontAdminRepository {
   /// Same three banners the customer app ships with.
   final _banners = _Store<List<PromoBanner>>(const [
-    PromoBanner(id: 'b1', title: 'Farm fresh\nfruits & veggies', subtitle: 'Up to 25% off today', emoji: '🥦', theme: 'maroon', categoryId: 'fruits', sortOrder: 0),
-    PromoBanner(id: 'b2', title: 'Monthly staples\nat mart prices', subtitle: 'Atta, rice, dal and oil', emoji: '🛒', theme: 'rose', categoryId: 'staples', sortOrder: 1),
-    PromoBanner(id: 'b3', title: 'Snack time\nfavourites', subtitle: 'Chips, biscuits and more', emoji: '🍿', theme: 'plum', categoryId: 'snacks', sortOrder: 2),
+    PromoBanner(
+        id: 'b1',
+        title: 'Farm fresh\nfruits & veggies',
+        subtitle: 'Up to 25% off today',
+        emoji: '🥦',
+        theme: 'maroon',
+        categoryId: 'fruits',
+        sortOrder: 0),
+    PromoBanner(
+        id: 'b2',
+        title: 'Monthly staples\nat mart prices',
+        subtitle: 'Atta, rice, dal and oil',
+        emoji: '🛒',
+        theme: 'rose',
+        categoryId: 'staples',
+        sortOrder: 1),
+    PromoBanner(
+        id: 'b3',
+        title: 'Snack time\nfavourites',
+        subtitle: 'Chips, biscuits and more',
+        emoji: '🍿',
+        theme: 'plum',
+        categoryId: 'snacks',
+        sortOrder: 2),
   ]);
   final _settings = _Store<StoreSettings>(StoreSettings.defaults);
   int _seq = 10;
@@ -628,6 +699,48 @@ class FakeRidersAdminRepository implements RidersAdminRepository {
   }
 }
 
+class FakeCouponsAdminRepository implements CouponsAdminRepository {
+  final _coupons = _Store<List<Coupon>>(const [
+    Coupon(
+      code: 'SAVE10',
+      type: CouponType.percent,
+      value: 10,
+      maxDiscountPaise: 10000,
+    ),
+    Coupon(
+      code: 'WELCOME50',
+      type: CouponType.flat,
+      value: 5000,
+      minOrderPaise: 19900,
+      oncePerCustomer: true,
+    ),
+  ]);
+
+  @override
+  Stream<List<Coupon>> watchCoupons() => _coupons.watch();
+
+  @override
+  Future<void> saveCoupon(Coupon coupon) async {
+    final list = _coupons.value.where((c) => c.code != coupon.code).toList()
+      ..add(coupon)
+      ..sort((a, b) => a.code.compareTo(b.code));
+    _coupons.set(list);
+  }
+
+  @override
+  Future<void> setActive(String code, {required bool active}) async {
+    _coupons.set([
+      for (final c in _coupons.value)
+        c.code == code ? c.copyWith(active: active) : c,
+    ]);
+  }
+
+  @override
+  Future<void> deleteCoupon(String code) async {
+    _coupons.set(_coupons.value.where((c) => c.code != code).toList());
+  }
+}
+
 class FakeContentAdminRepository implements ContentAdminRepository {
   final _faqs = _Store<List<Faq>>(const [
     Faq(
@@ -651,7 +764,8 @@ class FakeContentAdminRepository implements ContentAdminRepository {
   @override
   Future<void> saveFaq(Faq faq) async {
     if (faq.id.isEmpty) {
-      final next = _faqs.value.fold(-1, (m, f) => f.sortOrder > m ? f.sortOrder : m);
+      final next =
+          _faqs.value.fold(-1, (m, f) => f.sortOrder > m ? f.sortOrder : m);
       _faqs.set([
         ..._faqs.value,
         faq.copyWith(id: 'f${++_seq}', sortOrder: next + 1),

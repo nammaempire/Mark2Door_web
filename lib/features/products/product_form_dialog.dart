@@ -40,6 +40,12 @@ class ProductFormDialog extends ConsumerStatefulWidget {
 class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
   final _formKey = GlobalKey<FormState>();
   late final _name = TextEditingController(text: widget.product?.name);
+  late final _subtitle = TextEditingController(
+    text: widget.product?.subtitle,
+  );
+  late final _stock = TextEditingController(
+    text: widget.product?.stockQty?.toString() ?? '',
+  );
   late final _unit = TextEditingController(text: widget.product?.unit);
   late final _price = TextEditingController(
     text: widget.product == null
@@ -74,6 +80,8 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
   void dispose() {
     for (final c in [
       _name,
+      _subtitle,
+      _stock,
       _unit,
       _price,
       _mrp,
@@ -255,8 +263,12 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
         for (final c in _images)
           if (c.text.trim().isNotEmpty) c.text.trim(),
       ],
+      subtitle: _subtitle.text.trim(),
       description: _description.text.trim(),
       inStock: _inStock,
+      stockQty: _stock.text.trim().isEmpty
+          ? null
+          : int.parse(_stock.text.trim()),
     );
     try {
       await ref.read(catalogRepositoryProvider).saveProduct(product);
@@ -299,6 +311,20 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
                   textCapitalization: TextCapitalization.words,
                   validator: _required,
                   decoration: const InputDecoration(labelText: 'Product name'),
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  key: const ValueKey('product-subtitle'),
+                  controller: _subtitle,
+                  maxLength: 80,
+                  textCapitalization: TextCapitalization.sentences,
+                  decoration: const InputDecoration(
+                    labelText: 'Subtitle (optional)',
+                    hintText: 'Fresh from Ooty farms',
+                    helperText:
+                        'A short line under the name on the product page.',
+                    counterText: '',
+                  ),
                 ),
                 const SizedBox(height: 14),
                 Row(
@@ -422,6 +448,26 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
                   textCapitalization: TextCapitalization.sentences,
                   decoration: const InputDecoration(
                     labelText: 'Description (optional)',
+                  ),
+                ),
+                const SizedBox(height: 14),
+                TextFormField(
+                  key: const ValueKey('product-stock'),
+                  controller: _stock,
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                  ],
+                  decoration: const InputDecoration(
+                    labelText: 'Stock quantity (optional)',
+                    hintText: '8',
+                    helperText:
+                        'How many you have to sell. Customers cannot order '
+                        'more than this, each order reduces it, and at 0 the '
+                        'product shows as sold out. Leave empty if you do '
+                        'not count stock.',
+                    helperMaxLines: 3,
                   ),
                 ),
                 const SizedBox(height: 6),

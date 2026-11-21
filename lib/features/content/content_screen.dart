@@ -6,6 +6,7 @@ import '../../core/providers.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../models/storefront.dart';
+import 'legal_drafts.dart';
 
 /// Text the customer app shows under Account: help questions, terms and
 /// conditions, and the privacy policy. Everything here can be edited or
@@ -120,8 +121,7 @@ class ContentScreen extends ConsumerWidget {
                             final ok = await confirm(
                               context,
                               title: 'Delete this question?',
-                              message:
-                                  'It will be removed from the help page.',
+                              message: 'It will be removed from the help page.',
                               action: 'Delete',
                             );
                             if (ok) {
@@ -173,7 +173,7 @@ class _LegalRow extends ConsumerWidget {
       ),
       subtitle: Text(
         page == null
-            ? 'Not published. Customers see "not available".'
+            ? 'Not published. Open the pencil for a ready-made draft.'
             : updated == null
                 ? 'Published'
                 : 'Published · updated ${formatOrderDate(updated)}',
@@ -182,7 +182,7 @@ class _LegalRow extends ConsumerWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           StatusPill(
-            page == null ? 'Empty' : 'Live',
+            page == null ? 'Draft' : 'Live',
             page == null ? AppColors.textMuted : AppColors.success,
           ),
           const SizedBox(width: 8),
@@ -235,8 +235,26 @@ class _LegalDialog extends ConsumerStatefulWidget {
 
 class _LegalDialogState extends ConsumerState<_LegalDialog> {
   final _formKey = GlobalKey<FormState>();
-  late final _body = TextEditingController(text: widget.page?.body);
+  late final TextEditingController _body;
   bool _saving = false;
+
+  /// True when the page was never written and the editor opens with the
+  /// ready-made draft; nothing is published until Save.
+  bool get _isDraft => widget.page == null;
+
+  @override
+  void initState() {
+    super.initState();
+    _body = TextEditingController(
+      text: widget.page?.body ??
+          legalDraft(
+            widget.pageId,
+            ref.read(storeSettingsProvider).valueOrNull,
+            DateTime.now(),
+          ),
+    );
+    _body.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
@@ -270,29 +288,70 @@ class _LegalDialogState extends ConsumerState<_LegalDialog> {
         width: 680,
         child: Form(
           key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Type or paste the full text. Line breaks are kept, and '
-                'customers see it exactly as written here.',
-                style: TextStyle(fontSize: 13, color: AppColors.textMuted),
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                key: const ValueKey('page-body'),
-                controller: _body,
-                autofocus: true,
-                minLines: 14,
-                maxLines: 22,
-                keyboardType: TextInputType.multiline,
-                validator: (v) => (v?.trim().isEmpty ?? true)
-                    ? 'Write the page, or use Delete to remove it'
-                    : null,
-                decoration: const InputDecoration(alignLabelWithHint: true),
-              ),
-            ],
+          // Scrolls when the hints and error leave no room on a short window.
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _isDraft
+                      ? 'A ready-made draft is filled in. It is not published '
+                          'until you press Save. Edit it to match how your '
+                          'store works, and have a lawyer check it.'
+                      : 'Line breaks are kept, and customers see the text '
+                          'exactly as written here.',
+                  style:
+                      const TextStyle(fontSize: 13, color: AppColors.textMuted),
+                ),
+                if (hasPlaceholder(_body.text)) ...[
+                  const SizedBox(height: 8),
+                  const Row(
+                    key: ValueKey('placeholder-warning'),
+                    children: [
+                      Icon(
+                        Icons.warning_amber_rounded,
+                        size: 18,
+                        color: AppColors.danger,
+                      ),
+                      SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Replace everything in [SQUARE BRACKETS] with your '
+                          'own details before saving.',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.danger,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const ValueKey('page-body'),
+                  controller: _body,
+                  autofocus: true,
+                  minLines: 14,
+                  maxLines: 22,
+                  keyboardType: TextInputType.multiline,
+                  validator: (v) {
+                    final text = v?.trim() ?? '';
+                    if (text.isEmpty) {
+                      return 'Write the page, or use Delete to remove it';
+                    }
+                    // Customers must never see an unfilled blank.
+                    if (hasPlaceholder(text)) {
+                      return 'Replace the details in [SQUARE BRACKETS] first';
+                    }
+                    return null;
+                  },
+                  decoration: const InputDecoration(alignLabelWithHint: true),
+                ),
+              ],
+            ),
           ),
         ),
       ),

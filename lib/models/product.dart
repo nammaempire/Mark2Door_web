@@ -34,8 +34,10 @@ class Product {
     required this.mrpPaise,
     this.imageUrls = const [],
     this.emoji = '',
+    this.subtitle = '',
     this.description = '',
     this.inStock = true,
+    this.stockQty,
   });
 
   /// Empty for a product that has not been saved yet.
@@ -49,8 +51,20 @@ class Product {
   /// Up to [maxImages] photo links; the first is the main photo.
   final List<String> imageUrls;
   final String emoji;
+
+  /// Short line shown under the name on the customer's product page.
+  final String subtitle;
   final String description;
+
+  /// The "In stock" switch.
   final bool inStock;
+
+  /// Units left to sell. Orders reduce it and cancelled orders add it
+  /// back. Null means stock is not counted for this product.
+  final int? stockQty;
+
+  /// Customers can order it: switched on and not counted down to zero.
+  bool get canBeOrdered => inStock && (stockQty == null || stockQty! > 0);
 
   static const maxImages = 5;
 
@@ -70,8 +84,10 @@ class Product {
     mrpPaise: mrpPaise,
     imageUrls: imageUrls,
     emoji: emoji,
+    subtitle: subtitle,
     description: description,
     inStock: inStock ?? this.inStock,
+    stockQty: stockQty,
   );
 
   factory Product.fromMap(String id, Map<String, dynamic> map) => Product(
@@ -83,8 +99,10 @@ class Product {
     mrpPaise: (map['mrpPaise'] as num?)?.toInt() ?? 0,
     imageUrls: _readImages(map),
     emoji: map['emoji'] as String? ?? '',
+    subtitle: map['subtitle'] as String? ?? '',
     description: map['description'] as String? ?? '',
     inStock: map['inStock'] as bool? ?? true,
+    stockQty: (map['stockQty'] as num?)?.toInt(),
   );
 
   Map<String, dynamic> toMap() => {
@@ -98,8 +116,10 @@ class Product {
     'imageUrl': imageUrl,
     'imageUrls': imageUrls,
     'emoji': emoji,
+    'subtitle': subtitle,
     'description': description,
     'inStock': inStock,
+    'stockQty': stockQty,
   };
 }
 

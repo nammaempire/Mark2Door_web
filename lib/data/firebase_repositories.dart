@@ -3,6 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart' hide Order;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
+import '../models/coupon.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import '../models/storefront.dart';
@@ -63,25 +64,20 @@ class FirestoreCatalogAdminRepository implements CatalogAdminRepository {
       _db.collection('products');
 
   @override
-  Stream<List<Product>> watchProducts() => _products
-      .orderBy('nameLower')
-      .snapshots()
-      .map(
-        (snap) => snap.docs
-            .map((d) => Product.fromMap(d.id, d.data()))
-            .toList(growable: false),
-      );
+  Stream<List<Product>> watchProducts() =>
+      _products.orderBy('nameLower').snapshots().map(
+            (snap) => snap.docs
+                .map((d) => Product.fromMap(d.id, d.data()))
+                .toList(growable: false),
+          );
 
   @override
-  Stream<List<Category>> watchCategories() => _db
-      .collection('categories')
-      .orderBy('name')
-      .snapshots()
-      .map(
-        (snap) => snap.docs
-            .map((d) => Category.fromMap(d.id, d.data()))
-            .toList(growable: false),
-      );
+  Stream<List<Category>> watchCategories() =>
+      _db.collection('categories').orderBy('name').snapshots().map(
+            (snap) => snap.docs
+                .map((d) => Category.fromMap(d.id, d.data()))
+                .toList(growable: false),
+          );
 
   @override
   Future<void> saveCategory(Category category) {
@@ -106,9 +102,8 @@ class FirestoreCatalogAdminRepository implements CatalogAdminRepository {
 
   @override
   Future<void> saveProduct(Product product) {
-    final doc = product.id.isEmpty
-        ? _products.doc()
-        : _products.doc(product.id);
+    final doc =
+        product.id.isEmpty ? _products.doc() : _products.doc(product.id);
     return doc.set(product.toMap(), SetOptions(merge: true));
   }
 
@@ -152,7 +147,34 @@ class FirestoreOrdersAdminRepository implements OrdersAdminRepository {
         'riderId': rider?.id,
         'riderName': rider?.name,
         'riderPhone': rider?.phone,
+        // Starts the five-minute clock for the rider to accept.
+        'assignedAt':
+            rider == null ? null : DateTime.now().millisecondsSinceEpoch,
       });
+
+  @override
+  Future<void> markCashReceived(String riderId) async {
+    final delivered = await _db
+        .collection('orders')
+        .where('riderId', isEqualTo: riderId)
+        .where('status', isEqualTo: OrderStatus.delivered.name)
+        .get();
+    final holding = delivered.docs
+        .where((d) => Order.fromMap(d.id, d.data()).cashWithRider)
+        .toList();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    // A batch takes at most 500 writes.
+    for (var i = 0; i < holding.length; i += 400) {
+      final batch = _db.batch();
+      for (final doc in holding.skip(i).take(400)) {
+        batch.update(doc.reference, {
+          'cashHandedOver': true,
+          'cashHandedOverAt': now,
+        });
+      }
+      await batch.commit();
+    }
+  }
 
   @override
   Future<void> markRefunded(String orderId) => _db
@@ -181,7 +203,8 @@ class FirestoreOrdersAdminRepository implements OrdersAdminRepository {
     await _db.runTransaction((tx) async {
       // Re-read inside the transaction so two open consoles cannot both
       // pay the same reward or refund.
-      final fresh = Order.fromMap(order.id, (await tx.get(orderRef)).data() ?? {});
+      final fresh =
+          Order.fromMap(order.id, (await tx.get(orderRef)).data() ?? {});
       if (!fresh.needsSettlement) return;
       final now = DateTime.now().millisecondsSinceEpoch;
 
@@ -191,7 +214,8 @@ class FirestoreOrdersAdminRepository implements OrdersAdminRepository {
         if (referral != null && referral['status'] == 'joined') {
           final referrer = referral['referrerUid'] as String? ?? '';
           if (!firstDelivered || referrer.isEmpty) {
-            tx.update(referralRef, {'status': 'ineligible', 'completedAt': now});
+            tx.update(
+                referralRef, {'status': 'ineligible', 'completedAt': now});
           } else {
             final walletRef = _db.collection('wallets').doc(referrer);
             final wallet = (await tx.get(walletRef)).data() ?? const {};
@@ -204,8 +228,9 @@ class FirestoreOrdersAdminRepository implements OrdersAdminRepository {
             tx.set(
               walletRef,
               {
-                'balancePaise': ((wallet['balancePaise'] as num?)?.toInt() ?? 0) +
-                    due * ReferralRules.rewardPaise,
+                'balancePaise':
+                    ((wallet['balancePaise'] as num?)?.toInt() ?? 0) +
+                        due * ReferralRules.rewardPaise,
                 'successfulInvites': invites,
                 'rewardedMilestones': rewarded + due,
                 'updatedAt': now,
@@ -263,8 +288,7 @@ class FirestoreServiceAreaAdminRepository
 
   @override
   Stream<List<ServiceArea>> watchAreas() => _areas.snapshots().map(
-    (snap) =>
-        snap.docs
+        (snap) => snap.docs
             .map(
               (d) => ServiceArea(
                 pincode: d.id,
@@ -273,7 +297,7 @@ class FirestoreServiceAreaAdminRepository
             )
             .toList()
           ..sort((a, b) => a.pincode.compareTo(b.pincode)),
-  );
+      );
 
   @override
   Future<void> addArea(String pincode) =>
@@ -308,7 +332,9 @@ class FirestoreStorefrontAdminRepository implements StorefrontAdminRepository {
   @override
   Future<void> saveBanner(PromoBanner banner) async {
     if (banner.id.isNotEmpty) {
-      return _banners.doc(banner.id).set(banner.toMap(), SetOptions(merge: true));
+      return _banners
+          .doc(banner.id)
+          .set(banner.toMap(), SetOptions(merge: true));
     }
     final last =
         await _banners.orderBy('sortOrder', descending: true).limit(1).get();
@@ -343,12 +369,11 @@ class FirestoreRidersAdminRepository implements RidersAdminRepository {
       _db.collection('riders');
 
   @override
-  Stream<List<Rider>> watchRiders() =>
-      _riders.orderBy('name').snapshots().map(
-            (snap) => snap.docs
-                .map((d) => Rider.fromMap(d.id, d.data()))
-                .toList(growable: false),
-          );
+  Stream<List<Rider>> watchRiders() => _riders.orderBy('name').snapshots().map(
+        (snap) => snap.docs
+            .map((d) => Rider.fromMap(d.id, d.data()))
+            .toList(growable: false),
+      );
 
   @override
   Future<void> saveRider(Rider rider) {
@@ -358,6 +383,36 @@ class FirestoreRidersAdminRepository implements RidersAdminRepository {
 
   @override
   Future<void> deleteRider(String riderId) => _riders.doc(riderId).delete();
+}
+
+/// Collection: `coupons/{CODE}`. The customer app reads a coupon by its
+/// code, so the code is the document id.
+class FirestoreCouponsAdminRepository implements CouponsAdminRepository {
+  FirestoreCouponsAdminRepository(this._db);
+
+  final FirebaseFirestore _db;
+
+  CollectionReference<Map<String, dynamic>> get _coupons =>
+      _db.collection('coupons');
+
+  @override
+  Stream<List<Coupon>> watchCoupons() => _coupons.snapshots().map(
+        (snap) => snap.docs
+            .map((d) => Coupon.fromMap(d.id, d.data()))
+            .toList()
+          ..sort((a, b) => a.code.compareTo(b.code)),
+      );
+
+  @override
+  Future<void> saveCoupon(Coupon coupon) =>
+      _coupons.doc(coupon.code).set(coupon.toMap(), SetOptions(merge: true));
+
+  @override
+  Future<void> setActive(String code, {required bool active}) =>
+      _coupons.doc(code).update({'active': active});
+
+  @override
+  Future<void> deleteCoupon(String code) => _coupons.doc(code).delete();
 }
 
 /// Stores product photos in Firebase Storage under `products/` and returns
@@ -378,7 +433,8 @@ class FirebaseImageUploader implements ImageUploader {
       throw const AdminFailure('Choose a PNG, JPG or WebP image.');
     }
     if (image.bytes.length > maxBytes) {
-      throw const AdminFailure('That image is over 2 MB. Choose a smaller one.');
+      throw const AdminFailure(
+          'That image is over 2 MB. Choose a smaller one.');
     }
     final safeName = image.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
     final ref = _storage
@@ -430,7 +486,8 @@ class FirestoreContentAdminRepository implements ContentAdminRepository {
       return;
     }
     // New questions go to the end.
-    final last = await _faqs.orderBy('sortOrder', descending: true).limit(1).get();
+    final last =
+        await _faqs.orderBy('sortOrder', descending: true).limit(1).get();
     final next = last.docs.isEmpty
         ? 0
         : ((last.docs.first.data()['sortOrder'] as num?)?.toInt() ?? 0) + 1;

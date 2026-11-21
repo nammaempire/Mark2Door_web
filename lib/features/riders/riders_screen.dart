@@ -33,6 +33,42 @@ class RidersScreen extends ConsumerWidget {
       }
     }
 
+    // What each rider has earned from customers and still owes the store:
+    // star ratings on their deliveries, and cash collected but not yet
+    // handed over.
+    final ratingSum = <String, int>{};
+    final ratingCount = <String, int>{};
+    final cash = <String, int>{};
+    for (final o in orders) {
+      final id = o.riderId;
+      if (id == null) continue;
+      if (o.riderRating != null) {
+        ratingSum.update(id, (n) => n + o.riderRating!,
+            ifAbsent: () => o.riderRating!);
+        ratingCount.update(id, (n) => n + 1, ifAbsent: () => 1);
+      }
+      if (o.cashWithRider) {
+        cash.update(id, (n) => n + o.payablePaise,
+            ifAbsent: () => o.payablePaise);
+      }
+    }
+
+    Future<void> cashReceived(Rider r) async {
+      final amount = formatPaise(cash[r.id] ?? 0);
+      final ok = await confirm(
+        context,
+        title: 'Received $amount from ${r.name}?',
+        message: 'Confirm only after the cash is in your hands. '
+            "${r.name}'s app will then show nothing to hand over.",
+        action: 'Cash received',
+      );
+      if (!ok) return;
+      await ref.read(ordersRepositoryProvider).markCashReceived(r.id);
+      if (context.mounted) {
+        showMessage(context, '$amount received from ${r.name}');
+      }
+    }
+
     return AdminPage(
       title: 'Riders',
       subtitle: 'Delivery partners you can assign orders to.',
@@ -66,63 +102,180 @@ class RidersScreen extends ConsumerWidget {
                     children: [
                       for (final (i, r) in list.indexed) ...[
                         if (i > 0) const Divider(indent: 20, endIndent: 20),
-                        ListTile(
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 20,
-                            vertical: 4,
-                          ),
-                          leading: const CircleAvatar(
-                            backgroundColor: AppColors.primarySoft,
-                            child: Icon(
-                              Icons.delivery_dining_rounded,
-                              color: AppColors.primary,
-                            ),
-                          ),
-                          title: Text(
-                            r.name,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
-                          ),
-                          subtitle: Text(
-                            '+91 ${r.phone} · ${active[r.id] ?? 0} active '
-                            'deliver${(active[r.id] ?? 0) == 1 ? 'y' : 'ies'}',
-                          ),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              StatusPill(
-                                r.active ? 'Available' : 'Off duty',
-                                r.active
-                                    ? AppColors.success
-                                    : AppColors.textMuted,
+                        // Wide screens: details on the left, controls on the
+                        // right. Phones: the controls drop to their own line,
+                        // so the name and details keep the full width.
+                        LayoutBuilder(
+                          builder: (context, box) {
+                            final info = Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const CircleAvatar(
+                                  backgroundColor: AppColors.primarySoft,
+                                  child: Icon(
+                                    Icons.delivery_dining_rounded,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        r.name,
+                                        style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700,
+                                          color: AppColors.textDark,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      DefaultTextStyle.merge(
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          color: AppColors.textMuted,
+                                        ),
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              '+91 ${r.phone} · ${active[r.id] ?? 0} active '
+                                              'deliver'
+                                              '${(active[r.id] ?? 0) == 1 ? 'y' : 'ies'}',
+                                            ),
+                                            const SizedBox(height: 4),
+                                            Wrap(
+                                              spacing: 14,
+                                              runSpacing: 2,
+                                              children: [
+                                                Row(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    children: [
+                                                      const Icon(
+                                                        Icons.star_rounded,
+                                                        size: 18,
+                                                        color:
+                                                            Color(0xFFE8A200),
+                                                      ),
+                                                      const SizedBox(width: 2),
+                                                      Text(
+                                                        (ratingCount[r.id] ??
+                                                                    0) ==
+                                                                0
+                                                            ? 'No ratings yet'
+                                                            : '${(ratingSum[r.id]! / ratingCount[r.id]!).toStringAsFixed(1)}'
+                                                                ' · ${ratingCount[r.id]} rating'
+                                                                '${ratingCount[r.id] == 1 ? '' : 's'}',
+                                                        key: ValueKey(
+                                                            'rider-rating-${r.id}'),
+                                                        style: const TextStyle(
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color: AppColors
+                                                              .textDark,
+                                                        ),
+                                                      ),
+                                                    ]),
+                                                Text(
+                                                  'Cash to hand over: '
+                                                  '${formatPaise(cash[r.id] ?? 0)}',
+                                                  key: ValueKey(
+                                                      'rider-cash-${r.id}'),
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w700,
+                                                    color: (cash[r.id] ?? 0) > 0
+                                                        ? AppColors.danger
+                                                        : AppColors.textMuted,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            );
+                            final actions = Wrap(
+                              alignment: WrapAlignment.end,
+                              crossAxisAlignment: WrapCrossAlignment.center,
+                              spacing: 4,
+                              runSpacing: 4,
+                              children: [
+                                if ((cash[r.id] ?? 0) > 0) ...[
+                                  OutlinedButton(
+                                    key: ValueKey('cash-received-${r.id}'),
+                                    onPressed: () => cashReceived(r),
+                                    style: OutlinedButton.styleFrom(
+                                      minimumSize: const Size(140, 40),
+                                    ),
+                                    child: const Text('Cash received'),
+                                  ),
+                                ],
+                                StatusPill(
+                                  r.active ? 'Available' : 'Off duty',
+                                  r.active
+                                      ? AppColors.success
+                                      : AppColors.textMuted,
+                                ),
+                                Switch(
+                                  key: ValueKey('rider-switch-${r.id}'),
+                                  value: r.active,
+                                  onChanged: (v) =>
+                                      repo.saveRider(r.copyWith(active: v)),
+                                ),
+                                IconButton(
+                                  tooltip: 'Edit ${r.name}',
+                                  icon: const Icon(Icons.edit_outlined),
+                                  onPressed: () => _openForm(context, r),
+                                ),
+                                IconButton(
+                                  tooltip: 'Remove ${r.name}',
+                                  icon:
+                                      const Icon(Icons.delete_outline_rounded),
+                                  onPressed: () async {
+                                    final ok = await confirm(
+                                      context,
+                                      title: 'Remove ${r.name}?',
+                                      message: 'Orders already assigned keep '
+                                          'their record of this rider.',
+                                      action: 'Remove',
+                                    );
+                                    if (ok) await repo.deleteRider(r.id);
+                                  },
+                                ),
+                              ],
+                            );
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 10,
                               ),
-                              const SizedBox(width: 8),
-                              Switch(
-                                key: ValueKey('rider-switch-${r.id}'),
-                                value: r.active,
-                                onChanged: (v) =>
-                                    repo.saveRider(r.copyWith(active: v)),
-                              ),
-                              IconButton(
-                                tooltip: 'Edit ${r.name}',
-                                icon: const Icon(Icons.edit_outlined),
-                                onPressed: () => _openForm(context, r),
-                              ),
-                              IconButton(
-                                tooltip: 'Remove ${r.name}',
-                                icon: const Icon(Icons.delete_outline_rounded),
-                                onPressed: () async {
-                                  final ok = await confirm(
-                                    context,
-                                    title: 'Remove ${r.name}?',
-                                    message: 'Orders already assigned keep '
-                                        'their record of this rider.',
-                                    action: 'Remove',
-                                  );
-                                  if (ok) await repo.deleteRider(r.id);
-                                },
-                              ),
-                            ],
-                          ),
+                              child: box.maxWidth >= 720
+                                  ? Row(
+                                      children: [
+                                        Expanded(child: info),
+                                        const SizedBox(width: 12),
+                                        actions,
+                                      ],
+                                    )
+                                  : Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        info,
+                                        const SizedBox(height: 6),
+                                        actions,
+                                      ],
+                                    ),
+                            );
+                          },
                         ),
                       ],
                     ],

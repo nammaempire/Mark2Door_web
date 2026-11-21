@@ -158,6 +158,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                         DataColumn(label: Text('Price'), numeric: true),
                         DataColumn(label: Text('MRP'), numeric: true),
                         DataColumn(label: Text('Discount'), numeric: true),
+                        DataColumn(label: Text('Stock left'), numeric: true),
                         DataColumn(label: Text('In stock')),
                         DataColumn(label: Text('')),
                       ],
@@ -185,6 +186,18 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                                   p.discountPercent == 0
                                       ? '–'
                                       : '${p.discountPercent}%',
+                                ),
+                              ),
+                              DataCell(
+                                Text(
+                                  p.stockQty == null ? '–' : '${p.stockQty}',
+                                  key: ValueKey('stock-left-${p.id}'),
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: p.stockQty == 0
+                                        ? AppColors.danger
+                                        : AppColors.textDark,
+                                  ),
                                 ),
                               ),
                               DataCell(
@@ -226,7 +239,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                 const SizedBox(height: 12),
                 Text(
                   '${list.length} of ${all.length} products · '
-                  '${all.where((p) => !p.inStock).length} out of stock',
+                  '${all.where((p) => !p.canBeOrdered).length} out of stock',
                   style: const TextStyle(color: AppColors.textMuted),
                 ),
               ],
