@@ -1,4 +1,5 @@
 import '../models/coupon.dart';
+import '../models/demand.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import '../models/storefront.dart';
@@ -139,4 +140,17 @@ abstract interface class CouponsAdminRepository {
   Future<void> setActive(String code, {required bool active});
 
   Future<void> deleteCoupon(String code);
+}
+
+/// What customers wanted and could not get, recorded by the customer app.
+abstract interface class DemandAdminRepository {
+  /// Pincodes asked for outside the delivery area, most asked first.
+  Stream<List<PincodeRequest>> watchPincodeRequests();
+
+  /// Searches that found nothing to buy, most searched first.
+  Stream<List<SearchMiss>> watchSearchMisses();
+
+  Future<void> removePincodeRequest(String pincode);
+
+  Future<void> removeSearchMiss(String id);
 }

@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/env.dart';
 import '../models/coupon.dart';
+import '../models/demand.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import '../models/storefront.dart';
@@ -696,6 +697,65 @@ class FakeRidersAdminRepository implements RidersAdminRepository {
   @override
   Future<void> deleteRider(String riderId) async {
     _riders.set(_riders.value.where((r) => r.id != riderId).toList());
+  }
+}
+
+class FakeDemandAdminRepository implements DemandAdminRepository {
+  FakeDemandAdminRepository() {
+    final now = DateTime.now();
+    DateTime ago(int hours) => now.subtract(Duration(hours: hours));
+    _pincodes.set([
+      PincodeRequest(pincode: '560076', count: 14, lastAt: ago(2)),
+      PincodeRequest(pincode: '560095', count: 6, lastAt: ago(20)),
+      PincodeRequest(pincode: '560100', count: 1, lastAt: ago(70)),
+    ]);
+    _searches.set([
+      SearchMiss(
+        id: 'dragon-fruit',
+        term: 'dragon fruit',
+        count: 9,
+        notFound: 9,
+        outOfStock: 0,
+        lastAt: ago(1),
+      ),
+      SearchMiss(
+        id: 'butter',
+        term: 'butter',
+        count: 5,
+        notFound: 0,
+        outOfStock: 5,
+        lastAt: ago(5),
+      ),
+      SearchMiss(
+        id: 'paneer',
+        term: 'paneer',
+        count: 3,
+        notFound: 3,
+        outOfStock: 0,
+        lastAt: ago(30),
+      ),
+    ]);
+  }
+
+  final _pincodes = _Store<List<PincodeRequest>>(const []);
+  final _searches = _Store<List<SearchMiss>>(const []);
+
+  @override
+  Stream<List<PincodeRequest>> watchPincodeRequests() => _pincodes.watch();
+
+  @override
+  Stream<List<SearchMiss>> watchSearchMisses() => _searches.watch();
+
+  @override
+  Future<void> removePincodeRequest(String pincode) async {
+    _pincodes.set(
+      _pincodes.value.where((p) => p.pincode != pincode).toList(),
+    );
+  }
+
+  @override
+  Future<void> removeSearchMiss(String id) async {
+    _searches.set(_searches.value.where((s) => s.id != id).toList());
   }
 }
 

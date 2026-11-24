@@ -10,6 +10,7 @@ import 'package:mart2door_admin/features/dashboard/dashboard_screen.dart';
 import 'package:mart2door_admin/features/products/products_screen.dart';
 import 'package:mart2door_admin/data/fake_repositories.dart';
 import 'package:mart2door_admin/models/coupon.dart';
+import 'package:mart2door_admin/models/demand.dart';
 import 'package:mart2door_admin/models/order.dart';
 import 'package:mart2door_admin/models/product.dart';
 import 'package:mart2door_admin/features/content/legal_drafts.dart';
@@ -171,10 +172,42 @@ void main() {
       find.byKey(const ValueKey('category-name')),
       'Bakery',
     );
-    await tester.tap(find.byKey(const ValueKey('icon-bakery')));
+    // The drawn artwork is gone: a category needs a picture.
+    expect(find.text('Artwork'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('save-category-button')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Add an image link or upload an image'),
+      findsOneWidget,
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('category-image')),
+      'http://example.com/bakery.jpg',
+    );
+    await tester.tap(find.byKey(const ValueKey('save-category-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('Must be an https:// link'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('category-image')),
+      'https://example.com/bakery.jpg',
+    );
     await tester.tap(find.byKey(const ValueKey('save-category-button')));
     await tester.pumpAndSettle();
     expect(find.text('Bakery'), findsOneWidget);
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    final bakery = (await container
+            .read(catalogRepositoryProvider)
+            .watchCategories()
+            .first)
+        .firstWhere((c) => c.name == 'Bakery');
+    expect(bakery.imageUrl, 'https://example.com/bakery.jpg');
+    // Saved the way the customer app reads it.
+    expect(bakery.toMap()['imageUrl'], 'https://example.com/bakery.jpg');
+    expect(Category.fromMap('x', const {'name': 'Old'}).imageUrl, '');
 
     // "Fruits & Veg" has products, so deleting it is refused.
     final delete = find.byKey(const ValueKey('delete-category-fruits'));
@@ -985,6 +1018,71 @@ void main() {
     expect(order.couponCode, 'SAVE10');
     expect(order.couponDiscountPaise, 420);
     expect(order.cancelledBy, 'customer');
+  });
+
+  testWidgets('demand page lists asked pincodes and missed searches', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-/demand')));
+    await tester.pumpAndSettle();
+
+    // Most asked first.
+    expect(find.text('560076'), findsOneWidget);
+    expect(find.text('14'), findsOneWidget);
+    expect(find.text('dragon fruit'), findsOneWidget);
+    expect(find.text('Not in the catalogue'), findsNWidgets(2));
+    expect(find.text('Out of stock'), findsOneWidget);
+    final first = tester.getTopLeft(find.text('560076')).dy;
+    final second = tester.getTopLeft(find.text('560095')).dy;
+    expect(first, lessThan(second));
+
+    // Start delivering to the most asked pincode.
+    await tester.tap(find.byKey(const ValueKey('serve-560076')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Start delivering').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('pincode-request-560076')), findsNothing);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    final areas =
+        await container.read(areasRepositoryProvider).watchAreas().first;
+    expect(areas.any((a) => a.pincode == '560076' && a.active), isTrue);
+
+    // A search can be cleared from the list once it is dealt with.
+    final dismiss = find.byKey(const ValueKey('dismiss-search-butter'));
+    await tester.ensureVisible(dismiss);
+    await tester.pumpAndSettle();
+    await tester.tap(dismiss);
+    await tester.pumpAndSettle();
+    expect(find.text('butter'), findsNothing);
+  });
+
+  test('demand counts are read as the customer app writes them', () {
+    final pin = PincodeRequest.fromMap('560076', const {
+      'pincode': '560076',
+      'count': 14,
+      'lastAt': 1795000000000,
+    });
+    expect(pin.count, 14);
+    final both = SearchMiss.fromMap('butter', const {
+      'term': 'butter',
+      'count': 5,
+      'notFound': 2,
+      'outOfStock': 3,
+      'lastAt': 1795000000000,
+    });
+    expect(both.term, 'butter');
+    expect(both.reason, 'Not listed, later out of stock');
+    expect(
+      SearchMiss.fromMap('x', const {'count': 1, 'outOfStock': 1}).reason,
+      'Out of stock',
+    );
+    expect(
+      SearchMiss.fromMap('x', const {'count': 1, 'notFound': 1}).reason,
+      'Not in the catalogue',
+    );
   });
 
   testWidgets('sign out returns to the login page', (tester) async {

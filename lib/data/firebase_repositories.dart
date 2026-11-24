@@ -4,6 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 
 import '../models/coupon.dart';
+import '../models/demand.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import '../models/storefront.dart';
@@ -383,6 +384,40 @@ class FirestoreRidersAdminRepository implements RidersAdminRepository {
 
   @override
   Future<void> deleteRider(String riderId) => _riders.doc(riderId).delete();
+}
+
+/// Collections `pincode_requests` and `search_misses`, written by the
+/// customer app as running counts.
+class FirestoreDemandAdminRepository implements DemandAdminRepository {
+  FirestoreDemandAdminRepository(this._db);
+
+  final FirebaseFirestore _db;
+
+  @override
+  Stream<List<PincodeRequest>> watchPincodeRequests() =>
+      _db.collection('pincode_requests').snapshots().map(
+            (snap) => snap.docs
+                .map((d) => PincodeRequest.fromMap(d.id, d.data()))
+                .toList()
+              ..sort((a, b) => b.count.compareTo(a.count)),
+          );
+
+  @override
+  Stream<List<SearchMiss>> watchSearchMisses() =>
+      _db.collection('search_misses').snapshots().map(
+            (snap) => snap.docs
+                .map((d) => SearchMiss.fromMap(d.id, d.data()))
+                .toList()
+              ..sort((a, b) => b.count.compareTo(a.count)),
+          );
+
+  @override
+  Future<void> removePincodeRequest(String pincode) =>
+      _db.collection('pincode_requests').doc(pincode).delete();
+
+  @override
+  Future<void> removeSearchMiss(String id) =>
+      _db.collection('search_misses').doc(id).delete();
 }
 
 /// Collection: `coupons/{CODE}`. The customer app reads a coupon by its

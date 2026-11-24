@@ -91,6 +91,18 @@ service cloud.firestore {
     match /rider_tokens/{phone} {
       allow read, write: if isRiderWithPhone(phone);
     }
+    // What customers wanted and could not get: a pincode outside the
+    // delivery area, or a search that found nothing to buy. The customer
+    // app adds to a running count; only admins read or clear the lists.
+    match /pincode_requests/{pincode} {
+      allow read, delete: if isAdmin();
+      allow create, update: if signedIn()
+          && pincode.matches('^[1-9][0-9]{5}$');
+    }
+    match /search_misses/{term} {
+      allow read, delete: if isAdmin();
+      allow create, update: if signedIn() && term.size() <= 60;
+    }
     // The phone to notify for each customer about their orders. Written by
     // the customer app; read only by the server function.
     match /customer_tokens/{uid} {
@@ -121,9 +133,11 @@ service cloud.firestore {
           && request.resource.data.status == 'placed'
           && request.resource.data.paymentStatus == 'pending'
           && walletOk();
-      // TEST MODE ONLY for the customer branch: it lets the customer app
-      // record its own payment result. Replace with a Cloud Function
-      // before taking real money online.
+      // Customer branch: the app may record that a payment failed or is
+      // still pending, and may cancel. It can never mark an order paid:
+      // only the server does that, after checking Razorpay's signature.
+      // The one exception is an order the wallet paid for in full, where
+      // no money goes through Razorpay.
       allow update: if isAdmin()
           || (signedIn()
               && resource.data.userId == request.auth.uid
@@ -134,7 +148,13 @@ service cloud.firestore {
               // and only until the delivery partner has picked the order up.
               && (request.resource.data.status == resource.data.status
                   || (request.resource.data.status == 'cancelled'
-                      && resource.data.status in ['placed', 'accepted'])))
+                      && resource.data.status in ['placed', 'accepted']))
+              && (request.resource.data.paymentStatus
+                      == resource.data.paymentStatus
+                  || request.resource.data.paymentStatus == 'failed'
+                  || (request.resource.data.paymentStatus == 'paid'
+                      && resource.data.totalPaise
+                          == resource.data.get('walletAppliedPaise', 0))))
           // The customer rates the delivery once, after it is delivered.
           || (signedIn()
               && resource.data.userId == request.auth.uid

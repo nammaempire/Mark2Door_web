@@ -9,6 +9,7 @@ import '../data/firebase_repositories.dart';
 import '../data/repositories.dart';
 import '../features/dashboard/revenue_stats.dart';
 import '../models/coupon.dart';
+import '../models/demand.dart';
 import '../models/order.dart';
 import '../models/product.dart';
 import '../models/storefront.dart';
@@ -80,6 +81,20 @@ final ridersRepositoryProvider = Provider<RidersAdminRepository>((ref) {
       ? FirestoreRidersAdminRepository(FirebaseFirestore.instance)
       : FakeRidersAdminRepository();
 });
+
+final demandRepositoryProvider = Provider<DemandAdminRepository>((ref) {
+  return Env.useFirebase
+      ? FirestoreDemandAdminRepository(FirebaseFirestore.instance)
+      : FakeDemandAdminRepository();
+});
+
+final pincodeRequestsProvider = StreamProvider<List<PincodeRequest>>(
+  (ref) => ref.watch(demandRepositoryProvider).watchPincodeRequests(),
+);
+
+final searchMissesProvider = StreamProvider<List<SearchMiss>>(
+  (ref) => ref.watch(demandRepositoryProvider).watchSearchMisses(),
+);
 
 final couponsRepositoryProvider = Provider<CouponsAdminRepository>((ref) {
   return Env.useFirebase

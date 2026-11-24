@@ -87,7 +87,7 @@ class CategoriesScreen extends ConsumerWidget {
                             horizontal: 20,
                             vertical: 4,
                           ),
-                          leading: _EmojiTile(categoryEmoji(c.icon)),
+                          leading: _CategoryPicture(category: c),
                           title: Text(
                             c.name,
                             style: const TextStyle(fontWeight: FontWeight.w700),
@@ -124,33 +124,40 @@ class CategoriesScreen extends ConsumerWidget {
   }
 }
 
-class _EmojiTile extends StatelessWidget {
-  const _EmojiTile(this.emoji, {this.selected = false});
+/// The category's picture, or its old drawn icon when it has none yet.
+class _CategoryPicture extends StatelessWidget {
+  const _CategoryPicture({super.key, required this.category, this.size = 48});
 
-  final String emoji;
-  final bool selected;
+  final Category category;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
+    final fallback = Text(
+      categoryEmoji(category.icon),
+      style: TextStyle(
+        fontSize: size / 2,
+        fontFamilyFallback: const ['Noto Color Emoji'],
+      ),
+    );
     return Container(
-      width: 48,
-      height: 48,
+      width: size,
+      height: size,
       alignment: Alignment.center,
+      clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: AppColors.primarySoft,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: selected ? AppColors.primary : Colors.transparent,
-          width: 2,
-        ),
+        borderRadius: BorderRadius.circular(size * 0.29),
       ),
-      child: Text(
-        emoji,
-        style: const TextStyle(
-          fontSize: 24,
-          fontFamilyFallback: ['Noto Color Emoji'],
-        ),
-      ),
+      child: category.imageUrl.isEmpty
+          ? fallback
+          : Image.network(
+              category.imageUrl,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) => fallback,
+            ),
     );
   }
 }
@@ -167,13 +174,39 @@ class _CategoryDialog extends ConsumerStatefulWidget {
 class _CategoryDialogState extends ConsumerState<_CategoryDialog> {
   final _formKey = GlobalKey<FormState>();
   late final _name = TextEditingController(text: widget.category?.name);
-  late String _icon = widget.category?.icon ?? kCategoryIcons.keys.first;
+  late final _image = TextEditingController(text: widget.category?.imageUrl);
   bool _saving = false;
+  bool _uploading = false;
 
   @override
   void dispose() {
     _name.dispose();
+    _image.dispose();
     super.dispose();
+  }
+
+  String? _imageValidator(String? v) {
+    final url = v?.trim() ?? '';
+    if (url.isEmpty) return 'Add an image link or upload an image';
+    final uri = Uri.tryParse(url);
+    return uri != null && uri.scheme == 'https' && uri.host.isNotEmpty
+        ? null
+        : 'Must be an https:// link';
+  }
+
+  Future<void> _upload(ImageUploader uploader) async {
+    if (_uploading) return;
+    setState(() => _uploading = true);
+    try {
+      final url = await uploader.pickAndUpload();
+      if (mounted && url != null) setState(() => _image.text = url);
+    } on AdminFailure catch (e) {
+      if (mounted) showMessage(context, e.message);
+    } catch (_) {
+      if (mounted) showMessage(context, "Couldn't upload that image.");
+    } finally {
+      if (mounted) setState(() => _uploading = false);
+    }
   }
 
   Future<void> _save() async {
@@ -182,7 +215,9 @@ class _CategoryDialogState extends ConsumerState<_CategoryDialog> {
     final category = Category(
       id: widget.category?.id ?? '',
       name: _name.text.trim(),
-      icon: _icon,
+      // Kept for the tile colour in the customer app; no longer chosen.
+      icon: widget.category?.icon ?? 'basket',
+      imageUrl: _image.text.trim(),
     );
     try {
       await ref.read(catalogRepositoryProvider).saveCategory(category);
@@ -200,6 +235,13 @@ class _CategoryDialogState extends ConsumerState<_CategoryDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final uploader = ref.watch(imageUploaderProvider);
+    final preview = Category(
+      id: '',
+      name: '',
+      icon: widget.category?.icon ?? 'basket',
+      imageUrl: _imageValidator(_image.text) == null ? _image.text.trim() : '',
+    );
     return AlertDialog(
       title: Text(widget.category == null ? 'Add category' : 'Edit category'),
       content: SizedBox(
@@ -222,32 +264,60 @@ class _CategoryDialogState extends ConsumerState<_CategoryDialog> {
               ),
               const SizedBox(height: 18),
               const Text(
-                'Artwork',
+                'Category image',
                 style: TextStyle(
                   fontWeight: FontWeight.w700,
                   color: AppColors.textDark,
                 ),
               ),
+              const SizedBox(height: 4),
+              const Text(
+                'Shown on the category tile in the customer app. A square '
+                'picture works best.',
+                style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+              ),
               const SizedBox(height: 10),
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  for (final entry in kCategoryIcons.entries)
-                    Tooltip(
-                      message: entry.value.label,
-                      child: InkWell(
-                        key: ValueKey('icon-${entry.key}'),
-                        borderRadius: BorderRadius.circular(14),
-                        onTap: () => setState(() => _icon = entry.key),
-                        child: _EmojiTile(
-                          entry.value.emoji,
-                          selected: entry.key == _icon,
-                        ),
+                  _CategoryPicture(
+                    key: const ValueKey('category-image-preview'),
+                    category: preview,
+                    size: 56,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextFormField(
+                      key: const ValueKey('category-image'),
+                      controller: _image,
+                      keyboardType: TextInputType.url,
+                      validator: _imageValidator,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        labelText: 'Image link',
+                        hintText: 'https://…',
                       ),
                     ),
+                  ),
                 ],
               ),
+              const SizedBox(height: 8),
+              if (uploader != null)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    key: const ValueKey('upload-category-image'),
+                    onPressed: _uploading ? null : () => _upload(uploader),
+                    icon: const Icon(Icons.upload_rounded, size: 18),
+                    label: Text(_uploading ? 'Uploading…' : 'Upload image'),
+                  ),
+                )
+              else
+                const Text(
+                  'Uploading from this computer is available once the app '
+                  'is connected to Firebase.',
+                  style: TextStyle(fontSize: 12, color: AppColors.textMuted),
+                ),
             ],
           ),
         ),

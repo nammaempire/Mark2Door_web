@@ -12,6 +12,7 @@ import '../features/orders/orders_screen.dart';
 import '../features/products/products_screen.dart';
 import '../features/reports/reports_screen.dart';
 import '../features/coupons/coupons_screen.dart';
+import '../features/demand/demand_screen.dart';
 import '../features/riders/riders_screen.dart';
 import '../features/shell/admin_shell.dart';
 import '../features/storefront/storefront_screen.dart';
@@ -27,6 +28,7 @@ abstract final class Routes {
   static const customers = '/customers';
   static const riders = '/riders';
   static const coupons = '/coupons';
+  static const demand = '/demand';
   static const reports = '/reports';
   static const storefront = '/storefront';
   static const content = '/content';
@@ -65,6 +67,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             (Routes.customers, const CustomersScreen()),
             (Routes.riders, const RidersScreen()),
             (Routes.coupons, const CouponsScreen()),
+            (Routes.demand, const DemandScreen()),
             (Routes.reports, const ReportsScreen()),
             (Routes.storefront, const StorefrontScreen()),
             (Routes.content, const ContentScreen()),

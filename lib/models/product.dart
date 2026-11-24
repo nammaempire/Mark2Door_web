@@ -3,22 +3,43 @@ import 'package:flutter/foundation.dart';
 /// Mirrors the `categories/{id}` documents read by the customer app.
 @immutable
 class Category {
-  const Category({required this.id, required this.name, required this.icon});
+  const Category({
+    required this.id,
+    required this.name,
+    this.icon = 'basket',
+    this.imageUrl = '',
+  });
 
   final String id;
   final String name;
+
+  /// Drawn icon of categories made before pictures. The customer app
+  /// still uses it for the tile colour, and shows it when [imageUrl] is
+  /// empty or fails to load.
   final String icon;
+
+  /// Picture for the category tile: an https link or an uploaded image.
+  final String imageUrl;
 
   factory Category.fromMap(String id, Map<String, dynamic> map) => Category(
     id: id,
     name: map['name'] as String? ?? '',
     icon: map['icon'] as String? ?? 'basket',
+    imageUrl: map['imageUrl'] as String? ?? '',
   );
 
-  Category copyWith({String? id}) =>
-      Category(id: id ?? this.id, name: name, icon: icon);
+  Category copyWith({String? id}) => Category(
+    id: id ?? this.id,
+    name: name,
+    icon: icon,
+    imageUrl: imageUrl,
+  );
 
-  Map<String, dynamic> toMap() => {'name': name, 'icon': icon};
+  Map<String, dynamic> toMap() => {
+    'name': name,
+    'icon': icon,
+    'imageUrl': imageUrl,
+  };
 }
 
 /// Mirrors the `products/{id}` documents read by the customer app. Field

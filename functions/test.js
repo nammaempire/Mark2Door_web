@@ -183,3 +183,83 @@ assert.equal(nextStock(2, -5), 0);
 assert.equal(nextStock(undefined, -1), null);
 assert.equal(nextStock(null, 1), null);
 console.log('stock tests passed');
+
+// --- Razorpay payments ---------------------------------------------------
+const crypto = require('crypto');
+const {
+  payablePaise,
+  cannotPayReason,
+  validPaymentSignature,
+  validWebhookSignature,
+  webhookAction,
+  needsRefund,
+} = require('./payments');
+
+const pay = (over) => ({
+  userId: 'u1',
+  status: 'placed',
+  paymentMethod: 'online',
+  paymentStatus: 'pending',
+  totalPaise: 7200,
+  walletAppliedPaise: 2500,
+  ...over,
+});
+
+// The amount is the order less the wallet, and never negative.
+assert.equal(payablePaise(pay()), 4700);
+assert.equal(payablePaise(pay({ walletAppliedPaise: 0 })), 7200);
+assert.equal(payablePaise(pay({ walletAppliedPaise: 9000 })), 0);
+assert.equal(payablePaise(null), 0);
+
+// Only the owner of an open, unpaid online order can pay for it.
+assert.equal(cannotPayReason(pay(), 'u1'), null);
+assert.equal(cannotPayReason(pay(), 'someone-else'), 'This order belongs to someone else.');
+assert.equal(cannotPayReason(pay({ paymentMethod: 'cod' }), 'u1'), 'This order is not paid online.');
+assert.equal(cannotPayReason(pay({ status: 'cancelled' }), 'u1'), 'This order is no longer open.');
+assert.equal(cannotPayReason(pay({ paymentStatus: 'paid' }), 'u1'), 'This order is already paid.');
+assert.equal(cannotPayReason(pay({ walletAppliedPaise: 7200 }), 'u1'), 'There is nothing to pay.');
+assert.equal(cannotPayReason(undefined, 'u1'), 'This order does not exist.');
+
+// A payment counts only with Razorpay's own signature.
+const secret = 'test_secret_123';
+const good = crypto.createHmac('sha256', secret).update('order_ABC|pay_XYZ').digest('hex');
+assert.equal(validPaymentSignature('order_ABC', 'pay_XYZ', good, secret), true);
+assert.equal(validPaymentSignature('order_ABC', 'pay_OTHER', good, secret), false);
+assert.equal(validPaymentSignature('order_ABC', 'pay_XYZ', good, 'wrong_secret'), false);
+assert.equal(validPaymentSignature('order_ABC', 'pay_XYZ', 'made-up', secret), false);
+assert.equal(validPaymentSignature('order_ABC', 'pay_XYZ', undefined, secret), false);
+assert.equal(validPaymentSignature(undefined, 'pay_XYZ', good, secret), false);
+
+// Webhooks are trusted only with the webhook secret's signature.
+const body = JSON.stringify({ event: 'payment.captured' });
+const hook = crypto.createHmac('sha256', 'hook_secret').update(body).digest('hex');
+assert.equal(validWebhookSignature(body, hook, 'hook_secret'), true);
+assert.equal(validWebhookSignature(body + ' ', hook, 'hook_secret'), false);
+assert.equal(validWebhookSignature(body, hook, 'other'), false);
+assert.equal(validWebhookSignature('', hook, 'hook_secret'), false);
+
+// What each webhook event leads to.
+assert.deepEqual(
+  webhookAction({ event: 'payment.captured', payload: { payment: { entity: { id: 'pay_1', order_id: 'order_1', amount: 4700 } } } }),
+  { kind: 'paid', razorpayOrderId: 'order_1', paymentId: 'pay_1', amountPaise: 4700 },
+);
+assert.deepEqual(
+  webhookAction({ event: 'refund.processed', payload: { refund: { entity: { payment_id: 'pay_1' } } } }),
+  { kind: 'refunded', paymentId: 'pay_1' },
+);
+assert.equal(webhookAction({ event: 'payment.failed', payload: {} }), null);
+assert.equal(webhookAction({ event: 'payment.captured', payload: {} }), null);
+assert.equal(webhookAction(null), null);
+
+// A cancelled order that was paid online is refunded once.
+const paid = pay({ status: 'cancelled', paymentStatus: 'paid', paymentId: 'pay_1' });
+assert.equal(needsRefund(paid), true);
+assert.equal(needsRefund({ ...paid, refundRequestedAt: 5 }), false);
+assert.equal(needsRefund({ ...paid, paymentStatus: 'refunded' }), false);
+assert.equal(needsRefund({ ...paid, status: 'placed' }), false);
+assert.equal(needsRefund({ ...paid, paymentMethod: 'cod' }), false);
+assert.equal(needsRefund({ ...paid, paymentId: '' }), false);
+// Fully paid from the wallet: nothing went through Razorpay.
+assert.equal(needsRefund({ ...paid, walletAppliedPaise: 7200 }), false);
+assert.equal(needsRefund(null), false);
+console.log('payment tests passed');

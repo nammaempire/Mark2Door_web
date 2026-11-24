@@ -24,6 +24,7 @@ const _items = [
   _NavItem('Customers', Icons.people_alt_rounded, Routes.customers),
   _NavItem('Riders', Icons.delivery_dining_rounded, Routes.riders),
   _NavItem('Coupons', Icons.local_offer_rounded, Routes.coupons),
+  _NavItem('Demand', Icons.insights_rounded, Routes.demand),
   _NavItem('Reports', Icons.bar_chart_rounded, Routes.reports),
   _NavItem('Storefront', Icons.storefront_rounded, Routes.storefront),
   _NavItem('Help and legal', Icons.help_center_rounded, Routes.content),
