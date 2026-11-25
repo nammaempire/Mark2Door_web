@@ -41,6 +41,15 @@ abstract interface class CatalogAdminRepository {
 
   Future<void> setInStock(String productId, {required bool inStock});
 
+  /// Sets one store's own stock of a product: its "In stock" switch and
+  /// the units left there (null: not counted).
+  Future<void> setStoreStock(
+    String productId,
+    String storeId, {
+    required bool inStock,
+    required int? stockQty,
+  });
+
   Future<void> deleteProduct(String productId);
 }
 
@@ -49,6 +58,14 @@ abstract interface class OrdersAdminRepository {
   Stream<List<Order>> watchOrders();
 
   Future<void> updateStatus(String orderId, OrderStatus status);
+
+  /// Marks a courier order shipped, with the courier's name and the
+  /// tracking number the customer will see.
+  Future<void> shipOrder(
+    String orderId, {
+    required String courier,
+    required String tracking,
+  });
 
   /// Pass null to unassign.
   Future<void> assignRider(String orderId, Rider? rider);
@@ -98,8 +115,9 @@ abstract interface class ImageUploader {
 abstract interface class ServiceAreaAdminRepository {
   Stream<List<ServiceArea>> watchAreas();
 
-  /// Adds the pincode, or re-activates it if it already exists.
-  Future<void> addArea(String pincode);
+  /// Adds the pincode with its area [name], or re-activates and renames
+  /// it if it already exists.
+  Future<void> addArea(String pincode, {String name = '', String? storeId});
 
   Future<void> setActive(String pincode, {required bool active});
 

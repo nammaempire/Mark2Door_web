@@ -113,10 +113,18 @@ class Order {
     this.rejectedAt,
     this.riderRating,
     this.cashHandedOver = false,
+    this.cashHandedOverAt,
+    this.paidByQr = false,
+    this.paymentProofUrl,
+    this.storeId,
     this.deliveryPhotoUrl,
     this.couponCode,
     this.couponDiscountPaise = 0,
     this.cancelledBy,
+    this.isCourier = false,
+    this.courierEta,
+    this.courierName,
+    this.trackingNumber,
   });
 
   final String id;
@@ -178,12 +186,59 @@ class Order {
   /// True once the admin confirmed the rider handed over this order's cash.
   final bool cashHandedOver;
 
+  /// When the admin confirmed receiving this order's cash from the rider.
+  final DateTime? cashHandedOverAt;
+
+  /// A cash-on-delivery order the customer paid at the door by scanning
+  /// the store's QR. The money went to the store's account, so the rider
+  /// holds no cash for it.
+  final bool paidByQr;
+
+  /// The rider's photo of the customer's payment screen, as proof.
+  final String? paymentProofUrl;
+
+  /// The store that serves this order, from the delivery pincode. Null
+  /// for a business with one shop, and for outstation orders.
+  final String? storeId;
+
   /// Cash the rider collected for this order and has not handed over yet.
   bool get cashWithRider =>
       status == OrderStatus.delivered &&
       paymentMethod == PaymentMethod.cod &&
       riderId != null &&
+      !paidByQr &&
       !cashHandedOver;
+
+  /// An Outstation order: packed by the store and sent by courier, with
+  /// no rider. It uses the same statuses with other meanings:
+  /// accepted = packed, out for delivery = shipped.
+  final bool isCourier;
+
+  /// Delivery time the customer was promised, e.g. "3 to 5 days".
+  final String? courierEta;
+
+  /// Entered when the parcel is handed to the courier.
+  final String? courierName;
+  final String? trackingNumber;
+
+  /// Placed for online payment, but the customer has not paid yet. The
+  /// order should not be packed or given to a rider until they do.
+  bool get awaitingPayment =>
+      isActive &&
+      paymentMethod == PaymentMethod.online &&
+      paymentStatus == PaymentStatus.pending;
+
+  /// [status] in words that fit this order.
+  String get statusLabel => labelFor(status);
+
+  String labelFor(OrderStatus s) {
+    if (!isCourier) return s.label;
+    return switch (s) {
+      OrderStatus.accepted => 'Packed',
+      OrderStatus.pickedUp => 'Shipped',
+      _ => s.label,
+    };
+  }
 
   /// How long a rider may take to accept before the admin is alerted.
   static const acceptWithin = Duration(minutes: 5);
@@ -218,7 +273,7 @@ class Order {
   String get paymentLabel => needsRefund ? 'Refund due' : _paymentLabel;
 
   String get _paymentLabel => switch ((paymentMethod, paymentStatus)) {
-        (PaymentMethod.cod, _) => 'COD',
+        (PaymentMethod.cod, _) => paidByQr ? 'COD · paid by QR' : 'COD',
         (_, PaymentStatus.paid) => 'Paid online',
         (_, PaymentStatus.pending) => 'Payment pending',
         (_, PaymentStatus.failed) => 'Payment failed',
@@ -276,16 +331,27 @@ class Order {
         rejectedAt: rejectedAt,
         riderRating: riderRating,
         cashHandedOver: cashHandedOver,
+        cashHandedOverAt: cashHandedOverAt,
+        paidByQr: paidByQr,
+        paymentProofUrl: paymentProofUrl,
+        storeId: storeId,
         deliveryPhotoUrl: deliveryPhotoUrl,
         couponCode: couponCode,
         couponDiscountPaise: couponDiscountPaise,
         cancelledBy: cancelledBy,
+        isCourier: isCourier,
+        courierEta: courierEta,
+        courierName: courierName,
+        trackingNumber: trackingNumber,
       );
 
   Order copyWith({
     OrderStatus? status,
     PaymentStatus? paymentStatus,
     bool? cashHandedOver,
+    DateTime? cashHandedOverAt,
+    String? courierName,
+    String? trackingNumber,
   }) =>
       Order(
         id: id,
@@ -313,10 +379,18 @@ class Order {
         rejectedAt: rejectedAt,
         riderRating: riderRating,
         cashHandedOver: cashHandedOver ?? this.cashHandedOver,
+        cashHandedOverAt: cashHandedOverAt ?? this.cashHandedOverAt,
+        paidByQr: paidByQr,
+        paymentProofUrl: paymentProofUrl,
+        storeId: storeId,
         deliveryPhotoUrl: deliveryPhotoUrl,
         couponCode: couponCode,
         couponDiscountPaise: couponDiscountPaise,
         cancelledBy: cancelledBy,
+        isCourier: isCourier,
+        courierEta: courierEta,
+        courierName: courierName ?? this.courierName,
+        trackingNumber: trackingNumber ?? this.trackingNumber,
       );
 
   factory Order.fromMap(String id, Map<String, dynamic> map) => Order(
@@ -360,14 +434,70 @@ class Order {
         rejectedAt: _time(map['rejectedAt']),
         riderRating: (map['riderRating'] as num?)?.toInt(),
         cashHandedOver: map['cashHandedOver'] as bool? ?? false,
+        paidByQr: map['codPaidBy'] == 'qr',
+        paymentProofUrl: map['paymentProofUrl'] as String?,
+        storeId: map['storeId'] as String?,
+        cashHandedOverAt: map['cashHandedOverAt'] is int
+            ? DateTime.fromMillisecondsSinceEpoch(
+                map['cashHandedOverAt'] as int,
+              )
+            : null,
         deliveryPhotoUrl: map['deliveryPhotoUrl'] as String?,
         couponCode: map['couponCode'] as String?,
         couponDiscountPaise:
             (map['couponDiscountPaise'] as num?)?.toInt() ?? 0,
         cancelledBy: map['cancelledBy'] as String?,
+        isCourier: map['deliveryType'] == 'courier',
+        courierEta: map['courierEta'] as String?,
+        courierName: map['courierName'] as String?,
+        trackingNumber: map['trackingNumber'] as String?,
       );
 
   static DateTime? _time(Object? millis) => millis is num
       ? DateTime.fromMillisecondsSinceEpoch(millis.toInt())
       : null;
+}
+
+/// One time the admin confirmed "Cash received" from a rider: every cash
+/// order that was cleared in that one confirmation.
+class CashHandover {
+  const CashHandover({
+    required this.riderName,
+    required this.at,
+    required this.amountPaise,
+    required this.orders,
+  });
+
+  final String riderName;
+  final DateTime at;
+  final int amountPaise;
+  final int orders;
+
+  /// Handovers found in [orders], newest first. Orders confirmed in the
+  /// same click share one time, so they are grouped into one handover.
+  static List<CashHandover> from(Iterable<Order> orders) {
+    final groups = <String, List<Order>>{};
+    for (final o in orders) {
+      final at = o.cashHandedOverAt;
+      if (!o.cashHandedOver ||
+          at == null ||
+          o.paidByQr ||
+          o.paymentMethod != PaymentMethod.cod) {
+        continue;
+      }
+      groups
+          .putIfAbsent('${o.riderId}|${at.millisecondsSinceEpoch}', () => [])
+          .add(o);
+    }
+    final list = [
+      for (final g in groups.values)
+        CashHandover(
+          riderName: g.first.riderName ?? 'Rider',
+          at: g.first.cashHandedOverAt!,
+          amountPaise: g.fold(0, (sum, o) => sum + o.payablePaise),
+          orders: g.length,
+        ),
+    ]..sort((a, b) => b.at.compareTo(a.at));
+    return list;
+  }
 }

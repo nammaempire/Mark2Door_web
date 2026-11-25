@@ -173,7 +173,7 @@ class SalesReport {
           o.itemCount,
           _rupees(o.totalPaise),
           o.paymentLabel,
-          o.status.label,
+          o.statusLabel,
           o.riderName ?? '',
           o.countsAsRevenue ? 'Yes' : 'No',
         ],

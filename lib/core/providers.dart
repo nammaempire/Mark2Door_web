@@ -4,6 +4,7 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../features/stores/stores.dart';
 import '../data/fake_repositories.dart';
 import '../data/firebase_repositories.dart';
 import '../data/repositories.dart';
@@ -128,17 +129,50 @@ final storeSettingsProvider = StreamProvider<StoreSettings>(
   (ref) => ref.watch(storefrontRepositoryProvider).watchSettings(),
 );
 
-final ridersProvider = StreamProvider<List<Rider>>(
+final _allRidersProvider = StreamProvider<List<Rider>>(
   (ref) => ref.watch(ridersRepositoryProvider).watchRiders(),
 );
 
-final ordersProvider = StreamProvider<List<Order>>(
+/// Riders of the store on screen (see [activeStoreIdProvider]); all
+/// riders when no store is chosen.
+final ridersProvider = Provider<AsyncValue<List<Rider>>>((ref) {
+  final store = ref.watch(activeStoreIdProvider);
+  return ref.watch(_allRidersProvider).whenData(
+        (all) => store == null
+            ? all
+            : all.where((r) => r.storeId == store).toList(growable: false),
+      );
+});
+
+final _allOrdersProvider = StreamProvider<List<Order>>(
   (ref) => ref.watch(ordersRepositoryProvider).watchOrders(),
 );
 
-final areasProvider = StreamProvider<List<ServiceArea>>(
+/// Orders of the store on screen; every order when no store is chosen.
+/// The dashboard, reports, customers and cash figures all read this, so
+/// they follow the chosen store too.
+final ordersProvider = Provider<AsyncValue<List<Order>>>((ref) {
+  final store = ref.watch(activeStoreIdProvider);
+  return ref.watch(_allOrdersProvider).whenData(
+        (all) => store == null
+            ? all
+            : all.where((o) => o.storeId == store).toList(growable: false),
+      );
+});
+
+final _allAreasProvider = StreamProvider<List<ServiceArea>>(
   (ref) => ref.watch(areasRepositoryProvider).watchAreas(),
 );
+
+/// Pincodes of the store on screen; every pincode when none is chosen.
+final areasProvider = Provider<AsyncValue<List<ServiceArea>>>((ref) {
+  final store = ref.watch(activeStoreIdProvider);
+  return ref.watch(_allAreasProvider).whenData(
+        (all) => store == null
+            ? all
+            : all.where((a) => a.storeId == store).toList(growable: false),
+      );
+});
 
 /// Dashboard numbers, recomputed whenever the order stream emits.
 final revenueStatsProvider = Provider<AsyncValue<RevenueStats>>((ref) {

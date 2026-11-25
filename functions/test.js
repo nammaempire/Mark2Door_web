@@ -97,6 +97,22 @@ assert.equal(c.title, 'Payment failed');
 c = customerNotice(online({ paymentStatus: 'paid', status: 'cancelled' }), online({ paymentStatus: 'refunded', status: 'cancelled' }), id);
 assert.equal(c.title, 'Refund sent for order #2D1746');
 
+// Outstation (courier) orders: paid, packed, shipped, delivered.
+const parcel = (over) => online({ deliveryType: 'courier', courierEta: '3 to 5 days', paymentStatus: 'paid', ...over });
+c = customerNotice(parcel({ paymentStatus: 'pending' }), parcel(), id);
+assert.equal(c.body, 'Payment received. Your order is being prepared and reaches you in 3 to 5 days.');
+c = customerNotice(parcel(), parcel({ status: 'accepted' }), id);
+assert.equal(c.title, 'Order #2D1746 packed');
+c = customerNotice(parcel({ status: 'accepted' }), parcel({ status: 'pickedUp', courierName: 'DTDC', trackingNumber: 'D123' }), id);
+assert.equal(c.title, 'Order #2D1746 shipped');
+assert.equal(c.body, 'Your parcel is on its way with DTDC. Tracking number D123. It reaches you in 3 to 5 days from the order date.');
+c = customerNotice(parcel({ status: 'pickedUp' }), parcel({ status: 'delivered' }), id);
+assert.equal(c.body, 'Your parcel has reached you. Enjoy!');
+c = customerNotice(parcel(), parcel({ status: 'cancelled' }), id);
+assert.equal(c.title, 'Order #2D1746 cancelled');
+// An instant order being accepted by the rider stays silent, as before.
+assert.equal(customerNotice(mine(), mine({ status: 'accepted' }), id), null);
+
 // Delivery partner assigned; a different field changing does not repeat it.
 c = customerNotice(mine(), mine({ riderName: 'Suresh' }), id);
 assert.equal(c.title, 'Delivery partner assigned');
@@ -263,3 +279,44 @@ assert.equal(needsRefund({ ...paid, paymentId: '' }), false);
 assert.equal(needsRefund({ ...paid, walletAppliedPaise: 7200 }), false);
 assert.equal(needsRefund(null), false);
 console.log('payment tests passed');
+
+// Announcements: "Notify customers" in the admin web.
+const { announcementMessage, TOPIC } = require('./announce');
+assert.equal(TOPIC, 'offers');
+assert.deepEqual(
+  announcementMessage({ title: '  Flat 20% off  ', body: 'Use code\nSAVE20 today.', status: 'sending' }),
+  { title: 'Flat 20% off', body: 'Use code SAVE20 today.' },
+);
+assert.equal(announcementMessage({ title: 'x'.repeat(80), body: 'y' }).title.length, 50);
+assert.equal(announcementMessage({ title: '', body: 'Hello' }), null);
+assert.equal(announcementMessage({ title: 'Hi', body: '   ' }), null);
+assert.equal(announcementMessage({ title: 'Hi', body: 'There', status: 'sent' }), null);
+assert.equal(announcementMessage(null), null);
+console.log('announcement tests passed');
+
+// Several stores: an order moves its own store's stock.
+const { stockTarget } = require('./stock');
+const shared = { stockQty: 9, storeStock: { s1: { inStock: true, stockQty: 4 }, s2: { inStock: true, stockQty: null } } };
+assert.deepEqual(stockTarget(shared, 's1'), { field: 'storeStock.s1.stockQty', current: 4 });
+// A store that does not count the product: nothing to move.
+assert.deepEqual(stockTarget(shared, 's2'), { field: 'storeStock.s2.stockQty', current: null });
+// No entry for the store, or no store at all: the product's own count.
+assert.deepEqual(stockTarget(shared, 's3'), { field: 'stockQty', current: 9 });
+assert.deepEqual(stockTarget(shared, undefined), { field: 'stockQty', current: 9 });
+assert.deepEqual(stockTarget({ stockQty: 2 }, 's1'), { field: 'stockQty', current: 2 });
+console.log('store stock tests passed');
+
+// A reported success is accepted only if Razorpay records it as paid.
+const { paymentProblem } = require('./payments');
+const rzpOrder = { razorpayOrderId: 'order_1', totalPaise: 18500 };
+const goodPay = { order_id: 'order_1', status: 'captured', amount: 18500, method: 'upi' };
+assert.equal(paymentProblem(goodPay, rzpOrder), null);
+assert.equal(paymentProblem({ ...goodPay, status: 'authorized' }, rzpOrder), null);
+assert.equal(paymentProblem({ ...goodPay, status: 'failed' }, rzpOrder), 'Razorpay shows this payment as failed.');
+assert.equal(paymentProblem({ ...goodPay, status: 'created' }, rzpOrder), 'Razorpay shows this payment as created.');
+assert.equal(paymentProblem({ ...goodPay, order_id: 'order_2' }, rzpOrder), 'This payment belongs to a different order.');
+assert.equal(paymentProblem({ ...goodPay, amount: 100 }, rzpOrder), 'The amount paid does not match the order.');
+assert.equal(paymentProblem(null, rzpOrder), 'Payment not found.');
+// Wallet money already used comes off what Razorpay must have collected.
+assert.equal(paymentProblem({ ...goodPay, amount: 16000 }, { ...rzpOrder, walletAppliedPaise: 2500 }), null);
+console.log('payment check tests passed');

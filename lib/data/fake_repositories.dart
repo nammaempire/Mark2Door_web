@@ -318,6 +318,28 @@ class FakeCatalogAdminRepository implements CatalogAdminRepository {
   }
 
   @override
+  Future<void> setStoreStock(
+    String productId,
+    String storeId, {
+    required bool inStock,
+    required int? stockQty,
+  }) async {
+    _products.set([
+      for (final p in _products.value)
+        if (p.id == productId)
+          Product.fromMap(p.id, {
+            ...p.toMap(),
+            'storeStock': {
+              for (final e in p.storeStock.entries) e.key: e.value.toMap(),
+              storeId: {'inStock': inStock, 'stockQty': stockQty},
+            },
+          })
+        else
+          p,
+    ]);
+  }
+
+  @override
   Future<void> deleteProduct(String productId) async {
     _products.set(_products.value.where((p) => p.id != productId).toList());
   }
@@ -341,6 +363,24 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
   }
 
   @override
+  Future<void> shipOrder(
+    String orderId, {
+    required String courier,
+    required String tracking,
+  }) async {
+    _orders.set([
+      for (final o in _orders.value)
+        o.id == orderId
+            ? o.copyWith(
+                status: OrderStatus.pickedUp,
+                courierName: courier.trim(),
+                trackingNumber: tracking.trim(),
+              )
+            : o,
+    ]);
+  }
+
+  @override
   Future<void> assignRider(String orderId, Rider? rider) async {
     _orders.set([
       for (final o in _orders.value)
@@ -357,10 +397,11 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
 
   @override
   Future<void> markCashReceived(String riderId) async {
+    final now = DateTime.now();
     _orders.set([
       for (final o in _orders.value)
         o.riderId == riderId && o.cashWithRider
-            ? o.copyWith(cashHandedOver: true)
+            ? o.copyWith(cashHandedOver: true, cashHandedOverAt: now)
             : o,
     ]);
   }
@@ -507,6 +548,10 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
                         ? 4
                         : 5,
             cashHandedOver: daysAgo >= 2,
+            // Handed over at the end of the day it was delivered.
+            cashHandedOverAt: daysAgo >= 2
+                ? DateTime(now.year, now.month, now.day - daysAgo, 21)
+                : null,
           ),
         );
       }
@@ -523,6 +568,39 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
       // something to try Cash received on.
       (130, OrderStatus.delivered, 'r1', 'Suresh Kumar', '9900011111'),
     ];
+    // One Outstation order waiting to be packed and shipped by courier.
+    final parcel = catalog[3 % catalog.length];
+    orders.add(
+      Order(
+        id: 'M2DC1',
+        items: [
+          OrderItem(
+            productId: parcel.id,
+            name: parcel.name,
+            unit: parcel.unit,
+            pricePaise: parcel.pricePaise,
+            quantity: 1,
+          ),
+        ],
+        subtotalPaise: parcel.pricePaise,
+        deliveryFeePaise: 6000,
+        totalPaise: parcel.pricePaise + 6000,
+        // A regular customer ordering to an address outside the area.
+        address: Address(
+          name: _customers.first.$1,
+          phone: _customers.first.$2,
+          line1: '14, Beach Road, Mylapore, Chennai',
+          landmark: '',
+          pincode: '600004',
+        ),
+        paymentMethod: PaymentMethod.online,
+        paymentStatus: PaymentStatus.paid,
+        status: OrderStatus.placed,
+        createdAt: now.subtract(const Duration(minutes: 50)),
+        isCourier: true,
+        courierEta: '3 to 5 days',
+      ),
+    );
     for (final (i, entry) in live.indexed) {
       final product = catalog[(i * 5 + 1) % catalog.length];
       final customer = _customers[i % _customers.length];
@@ -574,8 +652,8 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
 
 class FakeServiceAreaAdminRepository implements ServiceAreaAdminRepository {
   final _areas = _Store<List<ServiceArea>>(const [
-    ServiceArea(pincode: '560001', active: true),
-    ServiceArea(pincode: '560034', active: true),
+    ServiceArea(pincode: '560001', active: true, name: 'MG Road'),
+    ServiceArea(pincode: '560034', active: true, name: 'Koramangala'),
     ServiceArea(pincode: '560038', active: true),
     ServiceArea(pincode: '560068', active: true),
     ServiceArea(pincode: '560102', active: true),
@@ -585,10 +663,22 @@ class FakeServiceAreaAdminRepository implements ServiceAreaAdminRepository {
   Stream<List<ServiceArea>> watchAreas() => _areas.watch();
 
   @override
-  Future<void> addArea(String pincode) async {
+  Future<void> addArea(
+    String pincode, {
+    String name = '',
+    String? storeId,
+  }) async {
     final rest = _areas.value.where((a) => a.pincode != pincode);
     _areas.set(
-      [...rest, ServiceArea(pincode: pincode, active: true)]
+      [
+        ...rest,
+        ServiceArea(
+          pincode: pincode,
+          active: true,
+          name: name.trim(),
+          storeId: storeId,
+        ),
+      ]
         ..sort((a, b) => a.pincode.compareTo(b.pincode)),
     );
   }
@@ -598,7 +688,12 @@ class FakeServiceAreaAdminRepository implements ServiceAreaAdminRepository {
     _areas.set([
       for (final a in _areas.value)
         a.pincode == pincode
-            ? ServiceArea(pincode: pincode, active: active)
+            ? ServiceArea(
+                pincode: pincode,
+                active: active,
+                name: a.name,
+                storeId: a.storeId,
+              )
             : a,
     ]);
   }

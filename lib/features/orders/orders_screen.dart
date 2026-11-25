@@ -43,9 +43,26 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
       if (!ok) return;
     }
     try {
-      await ref.read(ordersRepositoryProvider).updateStatus(order.id, status);
+      if (order.isCourier && status == OrderStatus.pickedUp) {
+        // Shipping needs the courier and tracking number for the customer.
+        final details = await showDialog<({String courier, String tracking})>(
+          context: context,
+          builder: (_) => _ShipDialog(order: order),
+        );
+        if (details == null) return;
+        await ref.read(ordersRepositoryProvider).shipOrder(
+              order.id,
+              courier: details.courier,
+              tracking: details.tracking,
+            );
+      } else {
+        await ref.read(ordersRepositoryProvider).updateStatus(order.id, status);
+      }
       if (mounted) {
-        showMessage(context, '${order.displayId} marked ${status.label}');
+        showMessage(
+          context,
+          '${order.displayId} marked ${order.labelFor(status)}',
+        );
       }
     } catch (_) {
       if (mounted) showMessage(context, "Couldn't update that order.");
@@ -163,11 +180,20 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                               ),
                               DataCell(Text(o.paymentLabel)),
                               DataCell(
-                                _RiderMenu(
-                                  order: o,
-                                  riders: riders,
-                                  onChanged: (r) => _assign(o, r),
-                                ),
+                                o.isCourier
+                                    ? _CourierCell(order: o)
+                                    : _RiderMenu(
+                                        order: o,
+                                        // Only riders of the order's
+                                        // own store can take it.
+                                        riders: o.storeId == null
+                                            ? riders
+                                            : riders
+                                                .where((r) =>
+                                                    r.storeId == o.storeId)
+                                                .toList(),
+                                        onChanged: (r) => _assign(o, r),
+                                      ),
                               ),
                               DataCell(
                                 _StatusMenu(
@@ -225,6 +251,143 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   }
 }
 
+/// The rider column for an Outstation order: it goes by courier, so there
+/// is no rider to choose; shows the tracking number once shipped.
+class _CourierCell extends StatelessWidget {
+  const _CourierCell({required this.order});
+
+  final Order order;
+
+  @override
+  Widget build(BuildContext context) {
+    final tracking = order.trackingNumber ?? '';
+    return Column(
+      key: ValueKey('courier-${order.id}'),
+      mainAxisSize: MainAxisSize.min,
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.local_shipping_rounded,
+              size: 16,
+              color: AppColors.primary,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              order.courierName ?? 'Outstation',
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ],
+        ),
+        if (tracking.isNotEmpty)
+          SelectableText(
+            tracking,
+            style: const TextStyle(fontSize: 12, color: AppColors.textMuted),
+          ),
+      ],
+    );
+  }
+}
+
+/// Asks for the courier's name and the tracking number when a courier
+/// order is marked shipped. The customer sees both on their order.
+class _ShipDialog extends StatefulWidget {
+  const _ShipDialog({required this.order});
+
+  final Order order;
+
+  @override
+  State<_ShipDialog> createState() => _ShipDialogState();
+}
+
+class _ShipDialogState extends State<_ShipDialog> {
+  final _formKey = GlobalKey<FormState>();
+  final _courier = TextEditingController();
+  final _tracking = TextEditingController();
+
+  @override
+  void dispose() {
+    _courier.dispose();
+    _tracking.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!_formKey.currentState!.validate()) return;
+    Navigator.of(context).pop(
+      (courier: _courier.text.trim(), tracking: _tracking.text.trim()),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Ship order ${widget.order.displayId}'),
+      content: SizedBox(
+        width: 380,
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'The customer is told the order has shipped and sees these '
+                'details. After this the order can no longer be cancelled by '
+                'the customer.',
+                style: TextStyle(fontSize: 13, color: AppColors.textMuted),
+              ),
+              const SizedBox(height: 14),
+              TextFormField(
+                key: const ValueKey('ship-courier'),
+                controller: _courier,
+                autofocus: true,
+                maxLength: 40,
+                textCapitalization: TextCapitalization.words,
+                validator: (v) => (v ?? '').trim().isEmpty
+                    ? 'Enter the delivery service, like DTDC'
+                    : null,
+                decoration: const InputDecoration(
+                  labelText: 'Delivery service',
+                  hintText: 'DTDC',
+                  counterText: '',
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey('ship-tracking'),
+                controller: _tracking,
+                maxLength: 40,
+                onFieldSubmitted: (_) => _submit(),
+                validator: (v) => (v ?? '').trim().isEmpty
+                    ? 'Enter the tracking number'
+                    : null,
+                decoration: const InputDecoration(
+                  labelText: 'Tracking number',
+                  counterText: '',
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Not now'),
+        ),
+        FilledButton(
+          key: const ValueKey('ship-confirm'),
+          onPressed: _submit,
+          child: const Text('Mark shipped'),
+        ),
+      ],
+    );
+  }
+}
+
 /// Sentinel so "Unassign" can be a real menu value (null means dismissed).
 const _noRider = Rider(id: '', name: '', phone: '');
 
@@ -254,6 +417,14 @@ class _RiderMenu extends StatelessWidget {
     );
     // Riders are only chosen for orders that still need delivering.
     if (!order.isActive) return label;
+    // Not paid yet: nothing to deliver until the customer pays online.
+    if (order.awaitingPayment && name == null) {
+      return Text(
+        'Awaiting payment',
+        key: ValueKey('awaiting-payment-${order.id}'),
+        style: const TextStyle(color: AppColors.textMuted),
+      );
+    }
     return Column(
       mainAxisSize: MainAxisSize.min,
       mainAxisAlignment: MainAxisAlignment.center,
@@ -304,7 +475,7 @@ class _RiderMenu extends StatelessWidget {
 /// The rider's proof-of-delivery photo. Clicking it opens a larger view
 /// that can be zoomed.
 class _DeliveryPhoto extends StatelessWidget {
-  const _DeliveryPhoto({required this.url});
+  const _DeliveryPhoto({super.key, required this.url});
 
   final String url;
 
@@ -433,7 +604,7 @@ class _StatusMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final pill = StatusPill(order.status.label, orderStatusColor(order.status));
+    final pill = StatusPill(order.statusLabel, orderStatusColor(order.status));
     // Finished orders are final; only live ones can be moved.
     if (!order.isActive) return pill;
     return PopupMenuButton<OrderStatus>(
@@ -443,7 +614,10 @@ class _StatusMenu extends StatelessWidget {
       itemBuilder: (context) => [
         for (final s in OrderStatus.values)
           if (s != order.status)
-            PopupMenuItem(value: s, child: Text('Mark ${s.label}')),
+            PopupMenuItem(
+              value: s,
+              child: Text('Mark ${order.labelFor(s)}'),
+            ),
       ],
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -487,7 +661,7 @@ class _OrderDialog extends ConsumerWidget {
       title: Row(
         children: [
           Expanded(child: Text('Order ${order.displayId}')),
-          StatusPill(order.status.label, orderStatusColor(order.status)),
+          StatusPill(order.statusLabel, orderStatusColor(order.status)),
         ],
       ),
       content: SizedBox(
@@ -555,11 +729,28 @@ class _OrderDialog extends ConsumerWidget {
                 _line('Delivery rating', '${order.riderRating} of 5 stars'),
               if (order.status == OrderStatus.delivered &&
                   order.paymentMethod == PaymentMethod.cod &&
+                  !order.paidByQr &&
                   order.riderId != null)
                 _line(
                   'Cash from rider',
                   order.cashHandedOver ? 'Received' : 'With rider',
                 ),
+              if (order.paidByQr) ...[
+                _line(
+                  'Paid at the door',
+                  (order.paymentProofUrl ?? '').startsWith('http')
+                      ? 'By QR scan · proof photo below'
+                      : 'By QR scan',
+                ),
+                if ((order.paymentProofUrl ?? '').startsWith('http')) ...[
+                  const SizedBox(height: 8),
+                  _DeliveryPhoto(
+                    key: const ValueKey('payment-proof-photo'),
+                    url: order.paymentProofUrl!,
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ],
               if (order.status == OrderStatus.delivered)
                 _line(
                   'Delivery photo',

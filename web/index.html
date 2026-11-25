@@ -53,6 +53,37 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <!-- Shown while the app downloads, so the page is never blank. Removed
+       when the app draws its first frame. -->
+  <style>
+    html, body { height: 100%; margin: 0; background: #7A1230; }
+    #m2d-loading {
+      position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 18px;
+      font-family: Roboto, Arial, sans-serif; color: #fff;
+      background: linear-gradient(135deg, #9F1D3F, #5A0A1C);
+    }
+    #m2d-loading .name { font-size: 26px; font-weight: 800; letter-spacing: -0.4px; }
+    #m2d-loading .name span { color: #FF8A1F; }
+    #m2d-loading .ring {
+      width: 34px; height: 34px; border-radius: 50%;
+      border: 3px solid rgba(255,255,255,.3); border-top-color: #fff;
+      animation: m2d-spin .9s linear infinite;
+    }
+    #m2d-loading .note { font-size: 13px; opacity: .8; }
+    @keyframes m2d-spin { to { transform: rotate(360deg); } }
+  </style>
+  <div id="m2d-loading">
+    <div class="name">mart<span>2</span>door</div>
+    <div class="ring"></div>
+    <div class="note">Loading the admin console…</div>
+  </div>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var el = document.getElementById('m2d-loading');
+      if (el) el.remove();
+    });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

@@ -110,6 +110,30 @@ function needsRefund(order) {
   );
 }
 
+/**
+ * A second check on a payment the app reports as successful, using what
+ * Razorpay itself says about it. Returns why it cannot be accepted, or
+ * null when it is a real, successful payment of the right amount for
+ * this order.
+ *
+ * The signature already proves Razorpay issued the success; this guards
+ * against a success being reported for an attempt that Razorpay records
+ * as failed, or for a different amount.
+ */
+function paymentProblem(payment, order) {
+  if (!payment || typeof payment !== 'object') return 'Payment not found.';
+  if (payment.order_id !== order.razorpayOrderId) {
+    return 'This payment belongs to a different order.';
+  }
+  if (payment.status !== 'captured' && payment.status !== 'authorized') {
+    return 'Razorpay shows this payment as ' + payment.status + '.';
+  }
+  if (payment.amount !== payablePaise(order)) {
+    return 'The amount paid does not match the order.';
+  }
+  return null;
+}
+
 module.exports = {
   payablePaise,
   cannotPayReason,
@@ -117,4 +141,5 @@ module.exports = {
   validWebhookSignature,
   webhookAction,
   needsRefund,
+  paymentProblem,
 };

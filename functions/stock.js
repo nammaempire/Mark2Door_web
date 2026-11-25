@@ -64,4 +64,33 @@ function nextStock(current, delta) {
   return next < 0 ? 0 : next;
 }
 
-module.exports = { quantities, pendingWork, hasWork, nextStock };
+/**
+ * Which stock count an order moves, for a business with several stores.
+ *
+ * A product can keep stock per store under `storeStock.{storeId}`. An
+ * order served by a store ([storeId] set) moves that store's count when
+ * the product has an entry for it; otherwise, and for a business with one
+ * shop, it moves the product's own `stockQty`.
+ *
+ * Returns the field to update and the number in it now (not a number
+ * when that stock is not counted).
+ */
+function stockTarget(product, storeId) {
+  const perStore = product && product.storeStock;
+  if (
+    typeof storeId === 'string' &&
+    storeId !== '' &&
+    perStore &&
+    typeof perStore === 'object' &&
+    perStore[storeId] &&
+    typeof perStore[storeId] === 'object'
+  ) {
+    return {
+      field: 'storeStock.' + storeId + '.stockQty',
+      current: perStore[storeId].stockQty,
+    };
+  }
+  return { field: 'stockQty', current: product ? product.stockQty : undefined };
+}
+
+module.exports = { quantities, pendingWork, hasWork, nextStock, stockTarget };

@@ -113,6 +113,17 @@ class FirestoreCatalogAdminRepository implements CatalogAdminRepository {
       _products.doc(productId).update({'inStock': inStock});
 
   @override
+  Future<void> setStoreStock(
+    String productId,
+    String storeId, {
+    required bool inStock,
+    required int? stockQty,
+  }) =>
+      _products.doc(productId).update({
+        'storeStock.$storeId': {'inStock': inStock, 'stockQty': stockQty},
+      });
+
+  @override
   Future<void> deleteProduct(String productId) =>
       _products.doc(productId).delete();
 }
@@ -141,6 +152,18 @@ class FirestoreOrdersAdminRepository implements OrdersAdminRepository {
   @override
   Future<void> updateStatus(String orderId, OrderStatus status) =>
       _db.collection('orders').doc(orderId).update({'status': status.name});
+
+  @override
+  Future<void> shipOrder(
+    String orderId, {
+    required String courier,
+    required String tracking,
+  }) =>
+      _db.collection('orders').doc(orderId).update({
+        'status': OrderStatus.pickedUp.name,
+        'courierName': courier.trim(),
+        'trackingNumber': tracking.trim(),
+      });
 
   @override
   Future<void> assignRider(String orderId, Rider? rider) =>
@@ -294,6 +317,8 @@ class FirestoreServiceAreaAdminRepository
               (d) => ServiceArea(
                 pincode: d.id,
                 active: d.data()['active'] as bool? ?? false,
+                name: (d.data()['name'] as String? ?? '').trim(),
+                storeId: d.data()['storeId'] as String?,
               ),
             )
             .toList()
@@ -301,12 +326,17 @@ class FirestoreServiceAreaAdminRepository
       );
 
   @override
-  Future<void> addArea(String pincode) =>
-      _areas.doc(pincode).set({'active': true});
+  Future<void> addArea(String pincode, {String name = '', String? storeId}) =>
+      _areas.doc(pincode).set({
+        'active': true,
+        'name': name.trim(),
+        'storeId': storeId,
+      });
 
   @override
   Future<void> setActive(String pincode, {required bool active}) =>
-      _areas.doc(pincode).set({'active': active});
+      // Merged, so the area name is kept.
+      _areas.doc(pincode).set({'active': active}, SetOptions(merge: true));
 
   @override
   Future<void> removeArea(String pincode) => _areas.doc(pincode).delete();

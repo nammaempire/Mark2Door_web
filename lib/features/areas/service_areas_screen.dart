@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../stores/stores.dart';
+import '../stores/stores_screen.dart';
 import '../../core/formatters.dart';
 import '../../core/providers.dart';
 import '../../core/theme.dart';
@@ -17,19 +19,37 @@ class ServiceAreasScreen extends ConsumerStatefulWidget {
 class _ServiceAreasScreenState extends ConsumerState<ServiceAreasScreen> {
   final _formKey = GlobalKey<FormState>();
   final _controller = TextEditingController();
+  final _name = TextEditingController();
 
   @override
   void dispose() {
     _controller.dispose();
+    _name.dispose();
     super.dispose();
   }
+
+  /// The store chosen for the pincode being added.
+  String? _storeId;
 
   Future<void> _add() async {
     if (!_formKey.currentState!.validate()) return;
     final pincode = _controller.text.trim();
+    final stores = ref.read(storesProvider).valueOrNull ?? const <Store>[];
+    // A store admin adds to their own store; with stores set up, a main
+    // admin has to say which store delivers there.
+    final storeId = ref.read(adminStoreIdProvider).valueOrNull ??
+        _storeId ??
+        ref.read(activeStoreIdProvider);
+    if (stores.isNotEmpty && storeId == null) {
+      showMessage(context, 'Choose the store that delivers to $pincode.');
+      return;
+    }
     try {
-      await ref.read(areasRepositoryProvider).addArea(pincode);
+      await ref
+          .read(areasRepositoryProvider)
+          .addArea(pincode, name: _name.text, storeId: storeId);
       _controller.clear();
+      _name.clear();
       if (mounted) showMessage(context, 'Now delivering to $pincode');
     } catch (_) {
       if (mounted) showMessage(context, "Couldn't add that pincode.");
@@ -43,7 +63,10 @@ class _ServiceAreasScreenState extends ConsumerState<ServiceAreasScreen> {
 
     return AdminPage(
       title: 'Service areas',
-      subtitle: 'Customers can only order to pincodes that are switched on.',
+      subtitle:
+          'Pincodes that are switched on get instant delivery of every '
+          'product. Everywhere else in India gets only the products marked '
+          '"Deliver all over India", as outstation delivery.',
       children: [
         Panel(
           title: 'Add a pincode',
@@ -64,8 +87,36 @@ class _ServiceAreasScreenState extends ConsumerState<ServiceAreasScreen> {
                     ],
                     validator: Validators.pincode,
                     onFieldSubmitted: (_) => _add(),
-                    decoration: const InputDecoration(hintText: '560034'),
+                    decoration: const InputDecoration(
+                      labelText: 'Pincode',
+                      hintText: '560034',
+                    ),
                   ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  width: 260,
+                  child: TextFormField(
+                    key: const ValueKey('area-name-field'),
+                    controller: _name,
+                    maxLength: 40,
+                    textCapitalization: TextCapitalization.words,
+                    onFieldSubmitted: (_) => _add(),
+                    decoration: const InputDecoration(
+                      labelText: 'Area name',
+                      hintText: 'Koramangala',
+                      helperText:
+                          'Customers see it in the pincode list. Add the '
+                          'pincode again to change it.',
+                      helperMaxLines: 2,
+                      counterText: '',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                StoreField(
+                  value: _storeId ?? ref.watch(activeStoreIdProvider),
+                  onChanged: (id) => setState(() => _storeId = id),
                 ),
                 const SizedBox(width: 12),
                 SizedBox(
@@ -102,7 +153,21 @@ class _ServiceAreasScreenState extends ConsumerState<ServiceAreasScreen> {
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
-                            area.pincode,
+                            [
+                              area.pincode,
+                              if (area.name.isNotEmpty) area.name,
+                              if (storeName(
+                                ref.watch(storesProvider).valueOrNull ??
+                                    const [],
+                                area.storeId,
+                              ).isNotEmpty)
+                                storeName(
+                                  ref.watch(storesProvider).valueOrNull ??
+                                      const [],
+                                  area.storeId,
+                                ),
+                            ].join('  ·  '),
+                            key: ValueKey('area-label-${area.pincode}'),
                             style: const TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,

@@ -1,12 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../stores/stores.dart';
 import '../../core/formatters.dart';
 import '../../core/providers.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../models/product.dart';
 import 'product_form_dialog.dart';
+import 'reviews_dialog.dart';
 
 class ProductsScreen extends ConsumerStatefulWidget {
   const ProductsScreen({super.key});
@@ -46,8 +48,68 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     }
   }
 
+  /// "Nagercoil 5 · Marthandam 5": what each store has of [p], for the
+  /// stores that keep their own count. Empty when none does.
+  static List<String> _byStore(Product p, List<Store> stores) => [
+        for (final s in stores)
+          if (p.storeStock.containsKey(s.id))
+            '${s.name} ${p.storeStock[s.id]!.inStock ? p.storeStock[s.id]!.stockQty ?? '–' : 'off'}',
+      ];
+
+  /// Asks for the units a store has of [p] and saves them for that store.
+  Future<void> _editStoreStock(Product p, String storeId) async {
+    final controller = TextEditingController(
+      text: p.stockQtyAt(storeId)?.toString() ?? '',
+    );
+    final result = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Stock of ${p.name}'),
+        content: SizedBox(
+          width: 320,
+          child: TextField(
+            key: const ValueKey('store-stock-field'),
+            controller: controller,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(
+              labelText: 'Units in this store',
+              helperText: 'Leave empty if this store does not count it.',
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const ValueKey('store-stock-save'),
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (result == null || !mounted) return;
+    final qty = result.isEmpty ? null : int.tryParse(result);
+    if (result.isNotEmpty && (qty == null || qty < 0)) {
+      showMessage(context, 'Enter a whole number, or leave it empty.');
+      return;
+    }
+    await ref.read(catalogRepositoryProvider).setStoreStock(
+          p.id,
+          storeId,
+          inStock: p.inStockAt(storeId),
+          stockQty: qty,
+        );
+  }
+
   @override
   Widget build(BuildContext context) {
+    // The store whose stock is shown; null shows the default stock.
+    final store = ref.watch(activeStoreIdProvider);
+    final stores = ref.watch(storesProvider).valueOrNull ?? const <Store>[];
     final products = ref.watch(productsProvider);
     final categories =
         ref.watch(categoriesProvider).valueOrNull ?? const <Category>[];
@@ -139,6 +201,12 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
               );
             }
 
+            // On a narrower window the less-needed columns are left out
+            // so the stock switch and the edit buttons stay in view.
+            final pageWidth = MediaQuery.sizeOf(context).width;
+            final showDiscount = pageWidth >= 1650;
+            final showCategory = pageWidth >= 1350;
+
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
@@ -147,31 +215,49 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                   child: TableScroller(
                     child: DataTable(
                       dataRowMinHeight: 60,
-                      dataRowMaxHeight: 60,
+                      // Rows grow when a product is kept in many stores.
+                      dataRowMaxHeight: double.infinity,
+                      columnSpacing: 28,
+                      horizontalMargin: 20,
                       headingTextStyle: const TextStyle(
                         fontWeight: FontWeight.w800,
                         color: AppColors.textMuted,
                       ),
-                      columns: const [
-                        DataColumn(label: Text('Product')),
-                        DataColumn(label: Text('Category')),
-                        DataColumn(label: Text('Price'), numeric: true),
-                        DataColumn(label: Text('MRP'), numeric: true),
-                        DataColumn(label: Text('Discount'), numeric: true),
-                        DataColumn(label: Text('Stock left'), numeric: true),
-                        DataColumn(label: Text('In stock')),
-                        DataColumn(label: Text('')),
+                      columns: [
+                        const DataColumn(label: Text('Product')),
+                        if (showCategory)
+                          const DataColumn(label: Text('Category')),
+                        const DataColumn(label: Text('Price'), numeric: true),
+                        const DataColumn(label: Text('MRP'), numeric: true),
+                        if (showDiscount)
+                          const DataColumn(
+                            label: Text('Discount'),
+                            numeric: true,
+                          ),
+                        const DataColumn(
+                          label: Text('Stock left'),
+                          numeric: true,
+                        ),
+                        const DataColumn(label: Text('All India')),
+                        const DataColumn(label: Text('In stock')),
+                        const DataColumn(label: Text('')),
                       ],
                       rows: [
                         for (final p in list)
                           DataRow(
                             cells: [
-                              DataCell(_ProductCell(product: p)),
+                              // Clicking the product opens it for editing.
                               DataCell(
-                                Text(
-                                  categoryNames[p.categoryId] ?? p.categoryId,
-                                ),
+                                _ProductCell(product: p),
+                                onTap: () => _openForm(categories, p),
                               ),
+                              if (showCategory)
+                                DataCell(
+                                  Text(
+                                    categoryNames[p.categoryId] ??
+                                        p.categoryId,
+                                  ),
+                                ),
                               DataCell(
                                 Text(
                                   formatPaise(p.pricePaise),
@@ -181,32 +267,106 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                                 ),
                               ),
                               DataCell(Text(formatPaise(p.mrpPaise))),
+                              if (showDiscount)
+                                DataCell(
+                                  Text(
+                                    p.discountPercent == 0
+                                        ? '–'
+                                        : '${p.discountPercent}%',
+                                  ),
+                                ),
                               DataCell(
-                                Text(
-                                  p.discountPercent == 0
-                                      ? '–'
-                                      : '${p.discountPercent}%',
+                                Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    // All stores together: each store's
+                                    // own count, one under the other so
+                                    // the table stays narrow.
+                                    if (store == null &&
+                                        _byStore(p, stores).isNotEmpty)
+                                      Column(
+                                        key: ValueKey('stock-left-${p.id}'),
+                                        mainAxisSize: MainAxisSize.min,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.center,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.end,
+                                        children: [
+                                          for (final line
+                                              in _byStore(p, stores))
+                                            ConstrainedBox(
+                                              constraints:
+                                                  const BoxConstraints(
+                                                maxWidth: 190,
+                                              ),
+                                              child: Text(
+                                                line,
+                                                maxLines: 1,
+                                                overflow:
+                                                    TextOverflow.ellipsis,
+                                                style: const TextStyle(
+                                                  fontSize: 12.5,
+                                                  height: 1.35,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: AppColors.textDark,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      )
+                                    else
+                                      Text(
+                                        p.stockQtyAt(store) == null
+                                            ? '–'
+                                            : '${p.stockQtyAt(store)}',
+                                        key: ValueKey('stock-left-${p.id}'),
+                                        style: TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          color: p.stockQtyAt(store) == 0
+                                              ? AppColors.danger
+                                              : AppColors.textDark,
+                                        ),
+                                      ),
+                                    // With a store chosen, its own count
+                                    // is edited right here.
+                                    if (store != null)
+                                      IconButton(
+                                        key: ValueKey('store-stock-${p.id}'),
+                                        tooltip: 'Set this store\'s stock',
+                                        iconSize: 16,
+                                        icon: const Icon(Icons.edit_outlined),
+                                        onPressed: () =>
+                                            _editStoreStock(p, store),
+                                      ),
+                                  ],
                                 ),
                               ),
                               DataCell(
-                                Text(
-                                  p.stockQty == null ? '–' : '${p.stockQty}',
-                                  key: ValueKey('stock-left-${p.id}'),
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w700,
-                                    color: p.stockQty == 0
-                                        ? AppColors.danger
-                                        : AppColors.textDark,
-                                  ),
-                                ),
+                                p.allIndia
+                                    ? StatusPill(
+                                        key: ValueKey('all-india-${p.id}'),
+                                        'Outstation',
+                                        AppColors.primary,
+                                      )
+                                    : const Text('–'),
                               ),
                               DataCell(
                                 Switch(
                                   key: ValueKey('stock-${p.id}'),
-                                  value: p.inStock,
-                                  onChanged: (v) => ref
-                                      .read(catalogRepositoryProvider)
-                                      .setInStock(p.id, inStock: v),
+                                  value: p.inStockAt(store),
+                                  onChanged: (v) => store == null
+                                      ? ref
+                                          .read(catalogRepositoryProvider)
+                                          .setInStock(p.id, inStock: v)
+                                      // Only this store's switch changes.
+                                      : ref
+                                          .read(catalogRepositoryProvider)
+                                          .setStoreStock(
+                                            p.id,
+                                            store,
+                                            inStock: v,
+                                            stockQty: p.stockQtyAt(store),
+                                          ),
                                 ),
                               ),
                               DataCell(
@@ -218,6 +378,18 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                                       tooltip: 'Edit ${p.name}',
                                       icon: const Icon(Icons.edit_outlined),
                                       onPressed: () => _openForm(categories, p),
+                                    ),
+                                    IconButton(
+                                      key: ValueKey('reviews-${p.id}'),
+                                      tooltip: 'Customer reviews',
+                                      icon: const Icon(
+                                        Icons.star_outline_rounded,
+                                      ),
+                                      onPressed: () => showDialog<void>(
+                                        context: context,
+                                        builder: (_) =>
+                                            ProductReviewsDialog(product: p),
+                                      ),
                                     ),
                                     IconButton(
                                       key: ValueKey('delete-${p.id}'),
@@ -239,7 +411,8 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                 const SizedBox(height: 12),
                 Text(
                   '${list.length} of ${all.length} products · '
-                  '${all.where((p) => !p.canBeOrdered).length} out of stock',
+                  '${all.where((p) => !p.canBeOrderedAt(store)).length} out of stock'
+                  '${store == null ? '' : ' in this store'}',
                   style: const TextStyle(color: AppColors.textMuted),
                 ),
               ],

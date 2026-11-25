@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mart2door_admin/features/stores/stores.dart';
+import 'package:mart2door_admin/features/offers/slab_offers.dart';
 import 'package:mart2door_admin/app.dart';
 import 'package:mart2door_admin/core/banner_art.dart';
 import 'package:mart2door_admin/core/emoji_picker.dart';
@@ -13,6 +15,7 @@ import 'package:mart2door_admin/models/coupon.dart';
 import 'package:mart2door_admin/models/demand.dart';
 import 'package:mart2door_admin/models/order.dart';
 import 'package:mart2door_admin/models/product.dart';
+import 'package:mart2door_admin/features/content/faq_drafts.dart';
 import 'package:mart2door_admin/features/content/legal_drafts.dart';
 import 'package:mart2door_admin/models/storefront.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -125,6 +128,8 @@ void main() {
 
   testWidgets('add and pause a service area', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/areas')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/areas')));
     await tester.pumpAndSettle();
     expect(find.textContaining('5 of 5 pincodes active'), findsOneWidget);
@@ -227,12 +232,20 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.enterText(find.byKey(const ValueKey('setting-eta')), '2');
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('save-settings-button')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('save-settings-button')));
     await tester.pumpAndSettle();
     expect(find.text('Enter 5 to 240 minutes'), findsOneWidget);
 
     await tester.enterText(find.byKey(const ValueKey('setting-eta')), '45');
     await tester.enterText(find.byKey(const ValueKey('setting-fee')), '25');
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('save-settings-button')),
+    );
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('save-settings-button')));
     await tester.pumpAndSettle();
     expect(find.text('Delivery settings saved'), findsOneWidget);
@@ -327,6 +340,49 @@ void main() {
       );
       expect(tester.takeException(), isNull, reason: '$size');
     }
+  });
+
+  testWidgets('festival banners can be picked and saved', (tester) async {
+    expect(bannerLayouts, containsAll(['christmas', 'newYear', 'pongal']));
+    expect(kBannerLayouts['pongal'], 'Pongal (3D)');
+
+    await _pumpApp(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-/storefront')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('add-banner-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('add-banner-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('banner-title')),
+      'Happy Pongal',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('banner-subtitle')),
+      'Rice, jaggery and sugarcane',
+    );
+    await tester.tap(find.byKey(const ValueKey('banner-emoji')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('emoji-search')), 'milk');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('emoji-🥛')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('layout-pongal')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('layout-pongal')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('save-banner-button')));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    expect(find.text('Banner saved'), findsOneWidget);
+    final banners = container.read(bannersProvider).requireValue;
+    expect(
+      banners.firstWhere((b) => b.title == 'Happy Pongal').layout,
+      'pongal',
+    );
   });
 
   test('emoji picker lists each emoji once and banner round-trips', () {
@@ -519,7 +575,8 @@ void main() {
     );
     expect(
       find.text('Not published. Open the pencil for a ready-made draft.'),
-      findsNWidgets(2),
+      // Two pages for the customer app and two for the delivery app.
+      findsNWidgets(4),
     );
 
     await tester.tap(find.byKey(const ValueKey('edit-page-terms')));
@@ -817,6 +874,22 @@ void main() {
     // City, phone and grievance officer are still for the admin to fill.
     expect(hasPlaceholder(terms), isTrue);
     expect(hasPlaceholder('Courts in Bengaluru have jurisdiction.'), isFalse);
+
+    // The delivery app has its own two pages.
+    final riderTerms = legalDraft(LegalPage.deliveryTermsId, settings, today);
+    expect(riderTerms, startsWith('DELIVERY PARTNER TERMS'));
+    expect(riderTerms, contains('run by Fresh Mart'));
+    final riderPrivacy =
+        legalDraft(LegalPage.deliveryPrivacyId, settings, today);
+    expect(riderPrivacy, startsWith('DELIVERY PARTNER PRIVACY POLICY'));
+    expect(riderPrivacy, contains('Aadhaar number'));
+    expect(LegalPage.titleOf(LegalPage.deliveryPrivacyId),
+        'Delivery partner privacy policy');
+    // The customer pages describe what the app does today.
+    expect(terms, contains('Outstation delivery'));
+    expect(terms, contains('Cart offers'));
+    expect(legalDraft(LegalPage.privacyId, settings, today),
+        contains('Use my current location'));
   });
 
   testWidgets('riders show their rating; cash received clears what they owe', (
@@ -1082,6 +1155,519 @@ void main() {
     expect(
       SearchMiss.fromMap('x', const {'count': 1, 'notFound': 1}).reason,
       'Not in the catalogue',
+    );
+  });
+
+  testWidgets('a product can be marked for all-India courier delivery', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-/products')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('add-product-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('product-name')),
+      'Palm Jaggery',
+    );
+    await tester.enterText(find.byKey(const ValueKey('product-unit')), '500 g');
+    await tester.enterText(find.byKey(const ValueKey('product-price')), '180');
+    await tester.enterText(find.byKey(const ValueKey('product-mrp')), '200');
+    await tester.ensureVisible(find.byKey(const ValueKey('all-india-switch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('all-india-switch')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('save-product-button')));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    final saved = (await container
+            .read(catalogRepositoryProvider)
+            .watchProducts()
+            .first)
+        .firstWhere((p) => p.name == 'Palm Jaggery');
+    expect(saved.allIndia, isTrue);
+    expect(saved.toMap()['allIndia'], isTrue);
+    // Products saved before the switch existed are not sent by courier.
+    expect(Product.fromMap('x', const {'name': 'Old'}).allIndia, isFalse);
+  });
+
+  testWidgets('a service area keeps its name when paused', (tester) async {
+    await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/areas')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('nav-/areas')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('pincode-field')),
+      '629001',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('area-name-field')),
+      'Nagercoil',
+    );
+    await tester.tap(find.byKey(const ValueKey('add-pincode-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('629001  ·  Nagercoil'), findsOneWidget);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('area-switch-629001')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('area-switch-629001')));
+    await tester.pumpAndSettle();
+    expect(find.text('629001  ·  Nagercoil'), findsOneWidget);
+  });
+
+  testWidgets('courier charge, free amount and delivery time are saved', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-/storefront')));
+    await tester.pumpAndSettle();
+    final fee = find.byKey(const ValueKey('setting-courier-fee'));
+    await tester.ensureVisible(fee);
+    await tester.pumpAndSettle();
+    await tester.enterText(fee, '80');
+    await tester.enterText(
+      find.byKey(const ValueKey('setting-courier-free')),
+      '1500',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('setting-courier-eta')),
+      '4 to 6 days',
+    );
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('save-settings-button')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('save-settings-button')));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    final saved = await container
+        .read(storefrontRepositoryProvider)
+        .watchSettings()
+        .first;
+    expect(saved.courierFeePaise, 8000);
+    expect(saved.courierFreeAbovePaise, 150000);
+    expect(saved.courierEta, '4 to 6 days');
+    expect(saved.toMap()['courierEta'], '4 to 6 days');
+  });
+
+  testWidgets('a courier order is packed, then shipped with a tracking number', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-/orders')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'Placed'));
+    await tester.pumpAndSettle();
+
+    // No rider to assign: it goes by courier.
+    final cell = find.byKey(const ValueKey('courier-M2DC1'));
+    await tester.ensureVisible(cell);
+    await tester.pumpAndSettle();
+    expect(cell, findsOneWidget);
+    expect(find.byKey(const ValueKey('rider-M2DC1')), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('status-M2DC1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mark Packed'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(ChoiceChip, 'All'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.byKey(const ValueKey('status-M2DC1')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('status-M2DC1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mark Shipped'));
+    await tester.pumpAndSettle();
+    // The tracking number is required.
+    await tester.tap(find.byKey(const ValueKey('ship-confirm')));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter the tracking number'), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('ship-courier')), 'DTDC');
+    await tester.enterText(
+      find.byKey(const ValueKey('ship-tracking')),
+      'D123456789',
+    );
+    await tester.tap(find.byKey(const ValueKey('ship-confirm')));
+    await tester.pumpAndSettle();
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    final order = (await container
+            .read(ordersRepositoryProvider)
+            .watchOrders()
+            .first)
+        .firstWhere((o) => o.id == 'M2DC1');
+    expect(order.status, OrderStatus.pickedUp);
+    expect(order.statusLabel, 'Shipped');
+    expect(order.courierName, 'DTDC');
+    expect(order.trackingNumber, 'D123456789');
+    expect(find.text('D123456789'), findsOneWidget);
+  });
+
+  testWidgets('an offer notification is sent to all customers', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    await tester.tap(find.byKey(const ValueKey('nav-/notify')));
+    await tester.pumpAndSettle();
+    // Both boxes are needed.
+    await tester.tap(find.byKey(const ValueKey('announce-send')));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter the message customers will read'), findsOneWidget);
+
+    await tester.enterText(
+      find.byKey(const ValueKey('announce-title')),
+      'Flat 20% off today',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('announce-body')),
+      'Use code SAVE20 on orders above 499.',
+    );
+    await tester.tap(find.byKey(const ValueKey('announce-send')));
+    await tester.pumpAndSettle();
+    expect(find.text('Send to all customers?'), findsOneWidget);
+    await tester.tap(find.text('Send'));
+    await tester.pumpAndSettle();
+    expect(find.text('Notification sent to customers'), findsOneWidget);
+    expect(find.byKey(const ValueKey('announcement-a2')), findsOneWidget);
+    expect(find.text('Use code SAVE20 on orders above 499.'), findsOneWidget);
+  });
+
+  testWidgets('dashboard shows cash handed over, and the customer month '
+      'filter narrows the list', (tester) async {
+    await _pumpApp(tester);
+    expect(find.byKey(const ValueKey('cash-handover-panel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('cash-received-month')), findsOneWidget);
+
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    final orders = container.read(ordersProvider).requireValue;
+    final before = CashHandover.from(orders).length;
+    final holder = orders.firstWhere((o) => o.cashWithRider);
+    await container
+        .read(ordersRepositoryProvider)
+        .markCashReceived(holder.riderId!);
+    await tester.pumpAndSettle();
+    final after = CashHandover.from(
+      container.read(ordersProvider).requireValue,
+    );
+    expect(after.length, before + 1);
+    expect(after.first.riderName, holder.riderName);
+    expect(after.first.amountPaise, greaterThan(0));
+
+    await tester.tap(find.byKey(const ValueKey('nav-/customers')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('customer-month')));
+    await tester.pumpAndSettle();
+    final now = DateTime.now();
+    const names = [
+      'January', 'February', 'March', 'April', 'May', 'June', 'July',
+      'August', 'September', 'October', 'November', 'December',
+    ];
+    await tester.tap(find.text('${names[now.month - 1]} ${now.year}').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('customer-month-count')), findsOneWidget);
+  });
+
+  testWidgets('stores: add a store, give it a pincode and its own stock', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    // One shop to begin with: no switcher.
+    expect(find.byKey(const ValueKey('store-switcher')), findsNothing);
+
+    // Stores is the last item in the menu, which scrolls.
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('nav-/stores')),
+      120,
+      scrollable: find
+          .ancestor(
+            of: find.byKey(const ValueKey('nav-/orders')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/stores')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('nav-/stores')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('add-store-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('store-name')),
+      'Nagercoil',
+    );
+    await tester.tap(find.byKey(const ValueKey('save-store-button')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('store-store1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('store-switcher')), findsOneWidget);
+
+    // Choosing the store narrows the orders (none belong to it yet).
+    final allOrders = container.read(ordersProvider).requireValue.length;
+    expect(allOrders, greaterThan(0));
+    container.read(selectedStoreProvider.notifier).choose('store1');
+    await tester.pumpAndSettle();
+    expect(container.read(ordersProvider).requireValue, isEmpty);
+
+    // A pincode added now belongs to the chosen store.
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/areas')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('nav-/areas')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('pincode-field')),
+      '629001',
+    );
+    await tester.tap(find.byKey(const ValueKey('add-pincode-button')));
+    await tester.pumpAndSettle();
+    final areas = container.read(areasProvider).requireValue;
+    expect(areas.single.pincode, '629001');
+    expect(areas.single.storeId, 'store1');
+
+    // The store's own stock: sold out here, untouched elsewhere.
+    final repo = container.read(catalogRepositoryProvider);
+    final first = (await repo.watchProducts().first).first;
+    await repo.setStoreStock(first.id, 'store1', inStock: true, stockQty: 0);
+    await tester.pumpAndSettle();
+    final updated = (await repo.watchProducts().first)
+        .firstWhere((p) => p.id == first.id);
+    expect(updated.stockQtyAt('store1'), 0);
+    expect(updated.canBeOrderedAt('store1'), isFalse);
+    expect(updated.canBeOrderedAt(null), first.canBeOrdered);
+    expect(updated.stockQtyAt('store2'), first.stockQty);
+    expect(
+      Product.fromMap('x', updated.toMap()).stockQtyAt('store1'),
+      0,
+    );
+
+    // Back to all stores: everything is there again.
+    container.read(selectedStoreProvider.notifier).choose(null);
+    await tester.pumpAndSettle();
+    expect(container.read(ordersProvider).requireValue.length, allOrders);
+  });
+
+  testWidgets('a product\'s stock is split between two stores in its form', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    final stores = container.read(storesRepositoryProvider);
+    await stores.save(const Store(id: '', name: 'Nagercoil'));
+    await stores.save(const Store(id: '', name: 'Marthandam'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('nav-/products')));
+    await tester.pumpAndSettle();
+    final repo = container.read(catalogRepositoryProvider);
+    // The first product listed on the page.
+    final editButton = find
+        .byWidgetPredicate((w) => '${w.key}'.contains("'edit-"))
+        .first;
+    final productId = '${tester.widget(editButton).key}'
+        .replaceAll(RegExp(r"^.*'edit-|'.*$"), '');
+    final product = (await repo.watchProducts().first)
+        .firstWhere((p) => p.id == productId);
+    await tester.ensureVisible(editButton);
+    await tester.pumpAndSettle();
+    await tester.tap(editButton);
+    await tester.pumpAndSettle();
+
+    // 10 bought: 6 to one store, 4 to the other.
+    final section = find.byKey(const ValueKey('store-stock-section'));
+    await tester.ensureVisible(section);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('store-qty-store1')),
+      '6',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('store-qty-store2')),
+      '4',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Total in stores: 10'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('save-product-button')));
+    await tester.pumpAndSettle();
+
+    final saved = (await repo.watchProducts().first)
+        .firstWhere((p) => p.id == product.id);
+    expect(saved.stockQtyAt('store1'), 6);
+    expect(saved.stockQtyAt('store2'), 4);
+    expect(saved.toMap()['storeStock'], {
+      'store1': {'inStock': true, 'stockQty': 6},
+      'store2': {'inStock': true, 'stockQty': 4},
+    });
+    // The table shows both stores' counts while "All stores" is chosen.
+    expect(find.textContaining('Marthandam 4'), findsOneWidget);
+    expect(find.textContaining('Nagercoil 6'), findsOneWidget);
+  });
+
+  testWidgets('a slab offer is added with its amount, price and products', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    final nav = find.byKey(const ValueKey('nav-/offers'));
+    await tester.ensureVisible(nav);
+    await tester.pumpAndSettle();
+    await tester.tap(nav);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('No offers yet'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('add-offer-button')));
+    await tester.pumpAndSettle();
+    // Nothing filled in: the form says what is missing.
+    await tester.tap(find.byKey(const ValueKey('save-offer-button')));
+    await tester.pumpAndSettle();
+    expect(find.text('Enter the cart amount'), findsOneWidget);
+    expect(find.text('Tick at least one product'), findsOneWidget);
+
+    await tester.enterText(find.byKey(const ValueKey('offer-min')), '299');
+    await tester.enterText(find.byKey(const ValueKey('offer-price')), '9');
+    final products =
+        await container.read(catalogRepositoryProvider).watchProducts().first;
+    final picks = products.take(2).toList();
+    for (final p in picks) {
+      await tester.enterText(
+        find.byKey(const ValueKey('offer-product-search')),
+        p.name,
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey('offer-product-${p.id}')));
+      await tester.pumpAndSettle();
+    }
+    expect(find.text('Products in the list (2 ticked)'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('save-offer-button')));
+    await tester.pumpAndSettle();
+
+    final saved =
+        (await container.read(slabOffersRepositoryProvider).watch().first)
+            .single;
+    expect(saved.minOrderPaise, 29900);
+    expect(saved.offerPricePaise, 900);
+    expect(saved.productIds.toSet(), {for (final p in picks) p.id});
+    expect(saved.toMap(), {
+      'minOrderPaise': 29900,
+      'offerPricePaise': 900,
+      'productIds': saved.productIds,
+      'active': true,
+    });
+    expect(
+      find.text('Order above ₹299: pick one for ₹9'),
+      findsOneWidget,
+    );
+
+    // Switching it off keeps it in the list.
+    await tester.tap(find.byKey(ValueKey('offer-active-${saved.id}')));
+    await tester.pumpAndSettle();
+    expect(
+      (await container.read(slabOffersRepositoryProvider).watch().first)
+          .single
+          .active,
+      isFalse,
+    );
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  testWidgets('delivery app questions are added, suggested and deleted apart '
+      'from the customer ones', (tester) async {
+    await _pumpApp(tester);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    Future<List<Faq>> faqs() =>
+        container.read(contentRepositoryProvider).watchFaqs().first;
+    final nav = find.byKey(const ValueKey('nav-/content'));
+    await tester.ensureVisible(nav);
+    await tester.pumpAndSettle();
+    await tester.tap(nav);
+    await tester.pumpAndSettle();
+    expect(find.text('Customer app questions (2)'), findsOneWidget);
+    expect(find.text('Delivery app questions (0)'), findsOneWidget);
+
+    // A question typed for the delivery app.
+    final add = find.byKey(const ValueKey('add-faq-button-delivery'));
+    await tester.ensureVisible(add);
+    await tester.pumpAndSettle();
+    await tester.tap(add);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('faq-question')),
+      'Who do I call for help?',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey('faq-answer')),
+      'Call the store.',
+    );
+    await tester.tap(find.byKey(const ValueKey('save-faq-button')));
+    await tester.pumpAndSettle();
+    final typed =
+        (await faqs()).singleWhere((f) => f.question.startsWith('Who do I'));
+    expect(typed.app, Faq.delivery);
+    expect(typed.toMap()['app'], 'delivery');
+    expect(find.text('Delivery app questions (1)'), findsOneWidget);
+    expect(find.text('Customer app questions (2)'), findsOneWidget);
+
+    // The ready-written questions; pressing twice adds nothing more.
+    final suggest = find.byKey(const ValueKey('suggest-faq-button-delivery'));
+    await tester.ensureVisible(suggest);
+    await tester.pumpAndSettle();
+    await tester.tap(suggest);
+    await tester.pumpAndSettle();
+    final drafts = faqDrafts(Faq.delivery).length;
+    expect(
+      (await faqs()).where((f) => f.app == Faq.delivery).length,
+      drafts + 1,
+    );
+    await tester.ensureVisible(suggest);
+    await tester.pumpAndSettle();
+    await tester.tap(suggest);
+    await tester.pumpAndSettle();
+    expect(
+      (await faqs()).where((f) => f.app == Faq.delivery).length,
+      drafts + 1,
+    );
+    expect((await faqs()).where((f) => f.app == Faq.customer).length, 2);
+
+    // Delete the typed one.
+    final delete = find.byKey(ValueKey('delete-faq-${typed.id}'));
+    await tester.ensureVisible(delete);
+    await tester.pumpAndSettle();
+    await tester.tap(delete);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
+    expect((await faqs()).any((f) => f.id == typed.id), isFalse);
+    await tester.pump(const Duration(seconds: 5));
+  });
+
+  test('a question saved before the delivery app had help is a customer one',
+      () {
+    final old = Faq.fromMap('f', const {'question': 'Q', 'answer': 'A'});
+    expect(old.app, Faq.customer);
+    expect(faqDrafts(Faq.customer), isNotEmpty);
+    expect(
+      faqDrafts(Faq.customer).map((d) => d.question).toSet().length,
+      faqDrafts(Faq.customer).length,
     );
   });
 

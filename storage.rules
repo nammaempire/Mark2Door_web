@@ -10,6 +10,21 @@ service firebase.storage {
               || (request.resource.size < 2 * 1024 * 1024
                   && request.resource.contentType.matches('image/.*')));
     }
+    // A delivery partner's licence and Aadhaar photos. Written by that
+    // rider only (their signed-in phone number ends with the folder
+    // name), read by that rider and by admins. Images only, up to 5 MB.
+    match /rider_docs/{phone}/{file} {
+      allow read: if request.auth != null
+          && (firestore.exists(/databases/(default)/documents/admins/$(request.auth.uid))
+              || ('phone_number' in request.auth.token
+                  && request.auth.token.phone_number.matches('.*' + phone + '$')));
+      allow write: if request.auth != null
+          && 'phone_number' in request.auth.token
+          && request.auth.token.phone_number.matches('.*' + phone + '$')
+          && request.resource != null
+          && request.resource.size < 5 * 1024 * 1024
+          && request.resource.contentType.matches('image/.*');
+    }
     // Proof-of-delivery photos: taken by a delivery partner (signed in by
     // phone) and viewed by the store. Images only, up to 5 MB.
     match /deliveries/{file} {

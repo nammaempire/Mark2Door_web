@@ -42,7 +42,9 @@ class StorefrontScreen extends ConsumerWidget {
               '${s.deliveryFeePaise}-${s.freeDeliveryThresholdPaise}-'
               '${s.deliveryEtaMinutes}-${s.handlingFeeEnabled}-'
               '${s.handlingFeePaise}-${s.rainFeeEnabled}-${s.rainFeePaise}-'
-              '${s.storeName}-${s.storeAddress}-${s.supportEmail}',
+              '${s.storeName}-${s.storeAddress}-${s.supportEmail}-'
+              '${s.courierFeePaise}-${s.courierFreeAbovePaise}-${s.courierEta}-'
+              '${s.paymentQrUrl}',
             ),
             settings: s,
           ),
@@ -142,6 +144,16 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
       TextEditingController(text: widget.settings.storeAddress);
   late final _supportEmail =
       TextEditingController(text: widget.settings.supportEmail);
+  late final _paymentQr =
+      TextEditingController(text: widget.settings.paymentQrUrl);
+  late final _courierFee = TextEditingController(
+    text: paiseToRupeesText(widget.settings.courierFeePaise),
+  );
+  late final _courierFree = TextEditingController(
+    text: paiseToRupeesText(widget.settings.courierFreeAbovePaise),
+  );
+  late final _courierEta =
+      TextEditingController(text: widget.settings.courierEta);
   late bool _handlingOn = widget.settings.handlingFeeEnabled;
   late bool _rainOn = widget.settings.rainFeeEnabled;
   bool _saving = false;
@@ -156,6 +168,10 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
     _storeName.dispose();
     _storeAddress.dispose();
     _supportEmail.dispose();
+    _paymentQr.dispose();
+    _courierFee.dispose();
+    _courierFree.dispose();
+    _courierEta.dispose();
     super.dispose();
   }
 
@@ -192,6 +208,10 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
               storeName: _storeName.text.trim(),
               storeAddress: _storeAddress.text.trim(),
               supportEmail: _supportEmail.text.trim(),
+              paymentQrUrl: _paymentQr.text.trim(),
+              courierFeePaise: parseRupeesToPaise(_courierFee.text)!,
+              courierFreeAbovePaise: parseRupeesToPaise(_courierFree.text)!,
+              courierEta: _courierEta.text.trim(),
             ),
           );
       if (mounted) showMessage(context, 'Delivery settings saved');
@@ -314,6 +334,74 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
             ),
             const SizedBox(height: 20),
             const Text(
+              'Outstation orders',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'For customers outside your service areas. They pay online, '
+              'and see this charge and delivery time before ordering.',
+              style: TextStyle(fontSize: 13, color: AppColors.textMuted),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 16,
+              runSpacing: 16,
+              children: [
+                SizedBox(
+                  width: 200,
+                  child: TextFormField(
+                    key: const ValueKey('setting-courier-fee'),
+                    controller: _courierFee,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    validator: _money,
+                    decoration: const InputDecoration(
+                      labelText: 'Outstation delivery charge',
+                      prefixText: '₹ ',
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 200,
+                  child: TextFormField(
+                    key: const ValueKey('setting-courier-free'),
+                    controller: _courierFree,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    validator: _money,
+                    decoration: const InputDecoration(
+                      labelText: 'Free delivery above',
+                      prefixText: '₹ ',
+                    ),
+                  ),
+                ),
+                SizedBox(
+                  width: 240,
+                  child: TextFormField(
+                    key: const ValueKey('setting-courier-eta'),
+                    controller: _courierEta,
+                    maxLength: 30,
+                    validator: (v) => (v ?? '').trim().isEmpty
+                        ? 'Enter a time like 3 to 5 days'
+                        : null,
+                    decoration: const InputDecoration(
+                      labelText: 'Delivery time',
+                      hintText: '3 to 5 days',
+                      helperText: 'Shown as "Reaches you in ..."',
+                      counterText: '',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Text(
               'Store and support',
               style: TextStyle(
                 fontWeight: FontWeight.w700,
@@ -377,6 +465,72 @@ class _SettingsFormState extends ConsumerState<_SettingsForm> {
                     ),
                   ),
                 ),
+              ],
+            ),
+            const SizedBox(height: 20),
+            const Text(
+              'Payment QR for cash orders',
+              style: TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+              ),
+            ),
+            const SizedBox(height: 2),
+            const Text(
+              'Some cash-on-delivery customers prefer to pay by UPI at the '
+              'door. Paste a link to a picture of your shop\'s UPI QR code. '
+              'The rider shows it, the customer scans and pays into your '
+              'account, and the rider photographs the customer\'s payment '
+              'screen as proof, which you see on the order.',
+              style: TextStyle(fontSize: 13, color: AppColors.textMuted),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 480,
+                  child: TextFormField(
+                    key: const ValueKey('setting-payment-qr'),
+                    controller: _paymentQr,
+                    keyboardType: TextInputType.url,
+                    onChanged: (_) => setState(() {}),
+                    validator: (v) {
+                      final link = v?.trim() ?? '';
+                      if (link.isEmpty) return null;
+                      return link.startsWith('https://')
+                          ? null
+                          : 'Enter a link that starts with https://';
+                    },
+                    decoration: const InputDecoration(
+                      labelText: 'QR image link',
+                      hintText: 'https://…/my-upi-qr.png',
+                      helperText: 'Leave empty to take cash only',
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                if (_paymentQr.text.trim().startsWith('https://'))
+                  Container(
+                    key: const ValueKey('payment-qr-preview'),
+                    width: 96,
+                    height: 96,
+                    decoration: BoxDecoration(
+                      border: Border.all(color: AppColors.border),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    clipBehavior: Clip.antiAlias,
+                    child: Image.network(
+                      _paymentQr.text.trim(),
+                      fit: BoxFit.contain,
+                      errorBuilder: (_, __, ___) => const Center(
+                        child: Icon(
+                          Icons.broken_image_outlined,
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
             const SizedBox(height: 16),

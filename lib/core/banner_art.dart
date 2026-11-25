@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import 'festive_banner.dart';
+
 /// Banner designs the admin can pick. Keys are stored in
 /// `banners/{id}.layout`; an unknown key is drawn as `classic`.
 const bannerLayouts = <String>[
@@ -9,6 +11,9 @@ const bannerLayouts = <String>[
   'spotlight',
   'offerTag',
   'watermark',
+  // Festival designs with moving 3D artwork; see festive_banner.dart.
+  // They bring their own colours, so the colour theme is not used.
+  ...festiveLayouts,
 ];
 
 /// Draws a promo banner in one of the [bannerLayouts].
@@ -46,7 +51,16 @@ class BannerArt extends StatelessWidget {
         final s = constraints.maxHeight / referenceHeight;
         return ClipRRect(
           borderRadius: BorderRadius.circular(24 * s),
-          child: DecoratedBox(
+          child: festiveLayouts.contains(layout)
+              ? FestiveBanner(
+                  kind: layout,
+                  scale: s,
+                  text: _textColumn(
+                    s,
+                    pillColor: FestiveBanner.colorsFor(layout).last,
+                  ),
+                )
+              : DecoratedBox(
             decoration: BoxDecoration(
               gradient: LinearGradient(
                 begin: Alignment.topLeft,
@@ -199,14 +213,14 @@ class BannerArt extends StatelessWidget {
   // --- Pieces ------------------------------------------------------------
 
   /// Title, subtitle and the "Shop now" pill.
-  Widget _textColumn(double s) => Column(
+  Widget _textColumn(double s, {Color? pillColor}) => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _title(s),
           SizedBox(height: 4 * s),
           _subtitle(s),
           const Spacer(),
-          _pill(s, 'Shop now'),
+          _pill(s, 'Shop now', color: pillColor),
         ],
       );
 
@@ -237,7 +251,7 @@ class BannerArt extends StatelessWidget {
         style: TextStyle(color: const Color(0xE6FFFFFF), fontSize: 13 * s),
       );
 
-  Widget _pill(double s, String label) => Container(
+  Widget _pill(double s, String label, {Color? color}) => Container(
         padding: EdgeInsets.symmetric(horizontal: 14 * s, vertical: 7 * s),
         decoration: BoxDecoration(
           color: Colors.white,
@@ -250,7 +264,7 @@ class BannerArt extends StatelessWidget {
           style: TextStyle(
             fontSize: 12 * s,
             fontWeight: FontWeight.w800,
-            color: colors.last,
+            color: color ?? colors.last,
           ),
         ),
       );

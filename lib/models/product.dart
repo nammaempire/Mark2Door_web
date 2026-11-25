@@ -59,6 +59,8 @@ class Product {
     this.description = '',
     this.inStock = true,
     this.stockQty,
+    this.allIndia = false,
+    this.storeStock = const {},
   });
 
   /// Empty for a product that has not been saved yet.
@@ -83,6 +85,27 @@ class Product {
   /// Units left to sell. Orders reduce it and cancelled orders add it
   /// back. Null means stock is not counted for this product.
   final int? stockQty;
+
+  /// "Deliver all over India": shown on the customer app's Outstation
+  /// tab and sent by courier to pincodes outside the service areas.
+  final bool allIndia;
+
+  /// Stock kept separately by each store, by store id. A store without
+  /// an entry uses [inStock] and [stockQty].
+  final Map<String, StoreStock> storeStock;
+
+  /// "In stock" as store [storeId] has it (null: the business as a whole).
+  bool inStockAt(String? storeId) => storeStock[storeId]?.inStock ?? inStock;
+
+  /// Units left at store [storeId]; null when not counted there.
+  int? stockQtyAt(String? storeId) => storeStock.containsKey(storeId)
+      ? storeStock[storeId]!.stockQty
+      : stockQty;
+
+  bool canBeOrderedAt(String? storeId) {
+    final qty = stockQtyAt(storeId);
+    return inStockAt(storeId) && (qty == null || qty > 0);
+  }
 
   /// Customers can order it: switched on and not counted down to zero.
   bool get canBeOrdered => inStock && (stockQty == null || stockQty! > 0);
@@ -109,6 +132,8 @@ class Product {
     description: description,
     inStock: inStock ?? this.inStock,
     stockQty: stockQty,
+    storeStock: storeStock,
+    allIndia: allIndia,
   );
 
   factory Product.fromMap(String id, Map<String, dynamic> map) => Product(
@@ -124,6 +149,14 @@ class Product {
     description: map['description'] as String? ?? '',
     inStock: map['inStock'] as bool? ?? true,
     stockQty: (map['stockQty'] as num?)?.toInt(),
+    allIndia: map['allIndia'] as bool? ?? false,
+    storeStock: {
+      for (final e in (map['storeStock'] as Map? ?? const {}).entries)
+        if (e.value is Map)
+          e.key as String: StoreStock.fromMap(
+            Map<String, dynamic>.from(e.value as Map),
+          ),
+    },
   );
 
   Map<String, dynamic> toMap() => {
@@ -141,6 +174,11 @@ class Product {
     'description': description,
     'inStock': inStock,
     'stockQty': stockQty,
+    'allIndia': allIndia,
+    if (storeStock.isNotEmpty)
+      'storeStock': {
+        for (final e in storeStock.entries) e.key: e.value.toMap(),
+      },
   };
 }
 
@@ -161,8 +199,37 @@ List<String> _readImages(Map<String, dynamic> map) {
 /// Mirrors `service_areas/{pincode}`.
 @immutable
 class ServiceArea {
-  const ServiceArea({required this.pincode, required this.active});
+  const ServiceArea({
+    required this.pincode,
+    required this.active,
+    this.name = '',
+    this.storeId,
+  });
 
   final String pincode;
   final bool active;
+
+  /// The store that delivers to this pincode; null with one shop.
+  final String? storeId;
+
+  /// Area name shown to customers next to the pincode, e.g. "Nagercoil".
+  final String name;
+}
+
+/// One store's stock of a product.
+@immutable
+class StoreStock {
+  const StoreStock({this.inStock = true, this.stockQty});
+
+  final bool inStock;
+
+  /// Units left at this store; null means not counted.
+  final int? stockQty;
+
+  factory StoreStock.fromMap(Map<String, dynamic> map) => StoreStock(
+        inStock: map['inStock'] as bool? ?? true,
+        stockQty: (map['stockQty'] as num?)?.toInt(),
+      );
+
+  Map<String, dynamic> toMap() => {'inStock': inStock, 'stockQty': stockQty};
 }

@@ -1,3 +1,4 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -210,19 +211,47 @@ Future<bool> confirm(
 
 /// Lets a [DataTable] fill the available width, and scroll sideways only
 /// when its columns genuinely do not fit.
-class TableScroller extends StatelessWidget {
+class TableScroller extends StatefulWidget {
   const TableScroller({super.key, required this.child});
 
   final Widget child;
 
   @override
+  State<TableScroller> createState() => _TableScrollerState();
+}
+
+class _TableScrollerState extends State<TableScroller> {
+  final _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // A table wider than the page scrolls sideways: the bar under it is
+    // always shown, and the table can also be dragged with the mouse.
     return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minWidth: constraints.maxWidth),
-          child: child,
+      builder: (context, constraints) => ScrollConfiguration(
+        behavior: ScrollConfiguration.of(context).copyWith(
+          scrollbars: false,
+          dragDevices: PointerDeviceKind.values.toSet(),
+        ),
+        child: Scrollbar(
+          controller: _controller,
+          thumbVisibility: true,
+          child: SingleChildScrollView(
+            key: const ValueKey('table-scroller'),
+            controller: _controller,
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.only(bottom: 12),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minWidth: constraints.maxWidth),
+              child: widget.child,
+            ),
+          ),
         ),
       ),
     );

@@ -65,6 +65,10 @@ const kBannerLayouts = <String, String>{
   'spotlight': 'Spotlight',
   'offerTag': 'Offer tag',
   'watermark': 'Watermark',
+  // Festival designs: animated 3D artwork with their own colours.
+  'christmas': 'Christmas (3D)',
+  'newYear': 'New Year (3D)',
+  'pongal': 'Pongal (3D)',
 };
 
 /// Mirrors `banners/{id}`: a promo card on the customer home page.
@@ -153,6 +157,10 @@ class StoreSettings {
     this.storeName = '',
     this.storeAddress = '',
     this.supportEmail = '',
+    this.courierFeePaise = 6000,
+    this.courierFreeAbovePaise = 99900,
+    this.courierEta = '3 to 5 days',
+    this.paymentQrUrl = '',
   });
 
   static const defaults = StoreSettings(
@@ -181,6 +189,17 @@ class StoreSettings {
   /// Shown on the customer app's help page; empty hides "Email us".
   final String supportEmail;
 
+  /// Outstation (courier) orders: one flat charge, free at or above an
+  /// order value, and the delivery time customers are told.
+  final int courierFeePaise;
+  final int courierFreeAbovePaise;
+  final String courierEta;
+
+  /// Link to a picture of the store's UPI QR code. The delivery app
+  /// shows it to a cash-on-delivery customer who would rather pay by
+  /// scanning. Empty hides that option.
+  final String paymentQrUrl;
+
   factory StoreSettings.fromMap(Map<String, dynamic> map) => StoreSettings(
         deliveryFeePaise: (map['deliveryFeePaise'] as num?)?.toInt() ??
             defaults.deliveryFeePaise,
@@ -196,6 +215,13 @@ class StoreSettings {
         storeName: map['storeName'] as String? ?? '',
         storeAddress: map['storeAddress'] as String? ?? '',
         supportEmail: map['supportEmail'] as String? ?? '',
+        courierFeePaise: (map['courierFeePaise'] as num?)?.toInt() ?? 6000,
+        courierFreeAbovePaise:
+            (map['courierFreeAbovePaise'] as num?)?.toInt() ?? 99900,
+        courierEta: (map['courierEta'] as String? ?? '').trim().isEmpty
+            ? '3 to 5 days'
+            : (map['courierEta'] as String).trim(),
+        paymentQrUrl: (map['paymentQrUrl'] as String? ?? '').trim(),
       );
 
   Map<String, dynamic> toMap() => {
@@ -209,6 +235,10 @@ class StoreSettings {
         'storeName': storeName,
         'storeAddress': storeAddress,
         'supportEmail': supportEmail,
+        'courierFeePaise': courierFeePaise,
+        'courierFreeAbovePaise': courierFreeAbovePaise,
+        'courierEta': courierEta,
+        'paymentQrUrl': paymentQrUrl,
       };
 }
 
@@ -221,6 +251,7 @@ class Rider {
     required this.name,
     required this.phone,
     this.active = true,
+    this.storeId,
   });
 
   /// Empty for a rider that has not been saved yet.
@@ -229,11 +260,15 @@ class Rider {
   final String phone;
   final bool active;
 
+  /// The store this rider delivers for; null with one shop.
+  final String? storeId;
+
   Rider copyWith({String? id, bool? active}) => Rider(
         id: id ?? this.id,
         name: name,
         phone: phone,
         active: active ?? this.active,
+        storeId: storeId,
       );
 
   factory Rider.fromMap(String id, Map<String, dynamic> map) => Rider(
@@ -241,13 +276,19 @@ class Rider {
         name: map['name'] as String? ?? '',
         phone: map['phone'] as String? ?? '',
         active: map['active'] as bool? ?? true,
+        storeId: map['storeId'] as String?,
       );
 
-  Map<String, dynamic> toMap() =>
-      {'name': name, 'phone': phone, 'active': active};
+  Map<String, dynamic> toMap() => {
+        'name': name,
+        'phone': phone,
+        'active': active,
+        'storeId': storeId,
+      };
 }
 
-/// A question and answer on the customer app's help page (`faqs/{id}`).
+/// A question and answer on an app's help page (`faqs/{id}`). [app] says
+/// which app shows it: the customer app or the delivery app.
 @immutable
 class Faq {
   const Faq({
@@ -255,7 +296,11 @@ class Faq {
     required this.question,
     required this.answer,
     this.sortOrder = 0,
+    this.app = customer,
   });
+
+  static const customer = 'customer';
+  static const delivery = 'delivery';
 
   /// Empty for a question that has not been saved yet.
   final String id;
@@ -263,11 +308,16 @@ class Faq {
   final String answer;
   final int sortOrder;
 
+  /// [customer] or [delivery]. Questions saved before the delivery app
+  /// had a help page have no value and belong to the customer app.
+  final String app;
+
   Faq copyWith({String? id, int? sortOrder}) => Faq(
         id: id ?? this.id,
         question: question,
         answer: answer,
         sortOrder: sortOrder ?? this.sortOrder,
+        app: app,
       );
 
   factory Faq.fromMap(String id, Map<String, dynamic> map) => Faq(
@@ -275,10 +325,15 @@ class Faq {
         question: map['question'] as String? ?? '',
         answer: map['answer'] as String? ?? '',
         sortOrder: (map['sortOrder'] as num?)?.toInt() ?? 0,
+        app: map['app'] == delivery ? delivery : customer,
       );
 
-  Map<String, dynamic> toMap() =>
-      {'question': question, 'answer': answer, 'sortOrder': sortOrder};
+  Map<String, dynamic> toMap() => {
+        'question': question,
+        'answer': answer,
+        'sortOrder': sortOrder,
+        'app': app,
+      };
 }
 
 /// Terms and conditions or the privacy policy (`pages/{id}`), shown in the
@@ -289,10 +344,26 @@ class LegalPage {
 
   static const termsId = 'terms';
   static const privacyId = 'privacy';
+
+  /// Shown in the delivery app, under Profile.
+  static const deliveryTermsId = 'delivery_terms';
+  static const deliveryPrivacyId = 'delivery_privacy';
+
+  /// The customer app's pages.
   static const ids = [termsId, privacyId];
 
-  static String titleOf(String id) =>
-      id == privacyId ? 'Privacy policy' : 'Terms and conditions';
+  /// The delivery app's pages.
+  static const deliveryIds = [deliveryTermsId, deliveryPrivacyId];
+
+  static bool isPrivacy(String id) =>
+      id == privacyId || id == deliveryPrivacyId;
+
+  static String titleOf(String id) => switch (id) {
+        privacyId => 'Privacy policy',
+        deliveryTermsId => 'Delivery partner terms',
+        deliveryPrivacyId => 'Delivery partner privacy policy',
+        _ => 'Terms and conditions',
+      };
 
   final String id;
   final String body;

@@ -87,10 +87,149 @@ class DashboardScreen extends ConsumerWidget {
                   ),
                 ],
               ),
+              const SizedBox(height: 20),
+              _CashPanel(orders: orders),
             ],
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Cash on delivery money: what riders have handed over (each time the
+/// admin pressed "Cash received" on the Riders page) and what they are
+/// still holding.
+class _CashPanel extends StatelessWidget {
+  const _CashPanel({required this.orders});
+
+  final List<Order> orders;
+
+  @override
+  Widget build(BuildContext context) {
+    final handovers = CashHandover.from(orders);
+    final now = DateTime.now();
+    bool today(DateTime d) =>
+        d.year == now.year && d.month == now.month && d.day == now.day;
+    final todayPaise = handovers
+        .where((h) => today(h.at))
+        .fold(0, (sum, h) => sum + h.amountPaise);
+    final monthPaise = handovers
+        .where((h) => h.at.year == now.year && h.at.month == now.month)
+        .fold(0, (sum, h) => sum + h.amountPaise);
+    final withRiders = orders
+        .where((o) => o.cashWithRider)
+        .fold(0, (sum, o) => sum + o.payablePaise);
+
+    Widget figure(String label, int paise, Color color, String key) =>
+        Container(
+          width: 210,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: color.withAlpha(20),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: AppColors.textMuted,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                formatPaise(paise),
+                key: ValueKey(key),
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
+        );
+
+    return Panel(
+      key: const ValueKey('cash-handover-panel'),
+      title: 'Cash handed over by riders',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              figure(
+                'Received today',
+                todayPaise,
+                AppColors.success,
+                'cash-received-today',
+              ),
+              figure(
+                'Received this month',
+                monthPaise,
+                AppColors.primary,
+                'cash-received-month',
+              ),
+              figure(
+                'Still with riders',
+                withRiders,
+                AppColors.accentDark,
+                'cash-with-riders',
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (handovers.isEmpty)
+            const Text(
+              'Nothing handed over yet. Press "Cash received" on the Riders '
+              'page when a rider gives you the cash.',
+              style: TextStyle(color: AppColors.textMuted),
+            )
+          else
+            for (final h in handovers.take(8))
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: Row(
+                  children: [
+                    const Icon(
+                      Icons.payments_rounded,
+                      size: 18,
+                      color: AppColors.success,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        h.riderName,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    Expanded(
+                      child: Text(
+                        '${h.orders} ${h.orders == 1 ? 'order' : 'orders'}',
+                        style: const TextStyle(color: AppColors.textMuted),
+                      ),
+                    ),
+                    Expanded(
+                      flex: 2,
+                      child: Text(
+                        formatOrderDate(h.at),
+                        style: const TextStyle(color: AppColors.textMuted),
+                      ),
+                    ),
+                    Text(
+                      formatPaise(h.amountPaise),
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ),
+        ],
+      ),
     );
   }
 }
@@ -413,7 +552,7 @@ class _RecentOrderRow extends StatelessWidget {
               ],
             ),
           ),
-          StatusPill(order.status.label, orderStatusColor(order.status)),
+          StatusPill(order.statusLabel, orderStatusColor(order.status)),
           SizedBox(
             width: 84,
             child: Text(

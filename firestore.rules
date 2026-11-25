@@ -31,6 +31,43 @@ service cloud.firestore {
     match /products/{id} {
       allow read: if signedIn();
       allow write: if isAdmin();
+
+      // Customer reviews: one per customer per product, written only by
+      // someone with a delivered order of their own. The store can
+      // remove a review.
+      match /reviews/{uid} {
+        allow read: if signedIn();
+        allow create, update: if isOwner(uid)
+            && request.resource.data.rating is int
+            && request.resource.data.rating >= 1
+            && request.resource.data.rating <= 5
+            && request.resource.data.text is string
+            && request.resource.data.text.size() <= 300
+            && request.resource.data.name is string
+            && request.resource.data.name.size() <= 40
+            && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.userId == request.auth.uid
+            && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.status == 'delivered';
+        allow delete: if isAdmin();
+      }
+    }
+
+    // The business's shops. Apps read them; only admins change them.
+    match /stores/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Price slab offers: "order above 299 and pick one product for 9".
+    // Apps read them; only admins change them.
+    match /slab_offers/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Notifications the store sends to every customer. Only admins can
+    // write them; a server function does the sending.
+    match /announcements/{id} {
+      allow read, write: if isAdmin();
     }
     match /categories/{id} {
       allow read: if signedIn();
@@ -73,6 +110,21 @@ service cloud.firestore {
         allow create: if isOwner(uid);
         allow update, delete: if false;
       }
+    }
+
+    // Documents a delivery partner submits after their first login: date
+    // of birth, address, driving licence and Aadhaar. Keyed by their
+    // 10-digit phone. Only that rider and the admins can read them.
+    match /rider_documents/{phone} {
+      allow read: if isAdmin() || isRiderWithPhone(phone);
+      allow create, update: if isRiderWithPhone(phone)
+          && request.resource.data.address is string
+          && request.resource.data.address.size() <= 300
+          && request.resource.data.licenceNumber is string
+          && request.resource.data.licenceNumber.size() <= 30
+          && request.resource.data.aadhaarNumber is string
+          && request.resource.data.aadhaarNumber.size() == 12;
+      allow delete: if isAdmin();
     }
 
     // Riders: admins manage them; a rider can read their own record.
@@ -132,6 +184,9 @@ service cloud.firestore {
           && request.resource.data.userId == request.auth.uid
           && request.resource.data.status == 'placed'
           && request.resource.data.paymentStatus == 'pending'
+          // Outstation (courier) orders are paid online, never in cash.
+          && (request.resource.data.get('deliveryType', 'instant') != 'courier'
+              || request.resource.data.paymentMethod == 'online')
           && walletOk();
       // Customer branch: the app may record that a payment failed or is
       // still pending, and may cancel. It can never mark an order paid:
@@ -170,7 +225,10 @@ service cloud.firestore {
                   .hasOnly(['status', 'riderId', 'riderName', 'riderPhone',
                             'deliveredAt', 'paymentStatus', 'assignedAt',
                             'rejectReason', 'rejectedByName', 'rejectedAt',
-                            'acceptedAt', 'deliveryPhotoUrl'])
+                            'acceptedAt', 'deliveryPhotoUrl',
+                            // A cash order paid at the door by QR scan,
+                            // with the rider's proof photo.
+                            'codPaidBy', 'paymentProofUrl', 'codPaidAt'])
               // Marking an order delivered needs the delivery photo.
               && (request.resource.data.status != 'delivered'
                   || resource.data.status == 'delivered'

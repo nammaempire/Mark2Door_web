@@ -18,27 +18,101 @@ class CustomersScreen extends ConsumerStatefulWidget {
 class _CustomersScreenState extends ConsumerState<CustomersScreen> {
   String _query = '';
 
+  /// The month whose orders are counted; null means all time.
+  DateTime? _month;
+
+  static const _monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June', 'July',
+    'August', 'September', 'October', 'November', 'December',
+  ];
+
+  static String _label(DateTime m) => '${_monthNames[m.month - 1]} ${m.year}';
+
   @override
   Widget build(BuildContext context) {
-    final customers =
-        ref.watch(ordersProvider).whenData(CustomerSummary.from);
+    final month = _month;
+    // With a month chosen, only that month's orders are counted, so the
+    // list is who ordered that month, with their orders and spend in it.
+    final customers = ref.watch(ordersProvider).whenData(
+          (orders) => CustomerSummary.from(
+            month == null
+                ? orders
+                : orders
+                    .where((o) =>
+                        o.createdAt.year == month.year &&
+                        o.createdAt.month == month.month)
+                    .toList(),
+          ),
+        );
+    final now = DateTime.now();
+    final months = [
+      for (var i = 0; i < 12; i++) DateTime(now.year, now.month - i),
+    ];
 
     return AdminPage(
       title: 'Customers',
       subtitle: 'Everyone who has ordered, by total spend. Select a row to '
           'see their order history.',
       children: [
-        SizedBox(
-          width: 320,
-          child: TextField(
-            key: const ValueKey('customer-search'),
-            onChanged: (v) => setState(() => _query = v.trim().toLowerCase()),
-            decoration: const InputDecoration(
-              hintText: 'Search name or mobile number',
-              prefixIcon: Icon(Icons.search_rounded),
-              contentPadding: EdgeInsets.symmetric(vertical: 12),
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            SizedBox(
+              width: 320,
+              child: TextField(
+                key: const ValueKey('customer-search'),
+                onChanged: (v) =>
+                    setState(() => _query = v.trim().toLowerCase()),
+                decoration: const InputDecoration(
+                  hintText: 'Search name or mobile number',
+                  prefixIcon: Icon(Icons.search_rounded),
+                  contentPadding: EdgeInsets.symmetric(vertical: 12),
+                ),
+              ),
             ),
-          ),
+            SizedBox(
+              width: 220,
+              child: InputDecorator(
+                decoration: const InputDecoration(
+                  labelText: 'Month',
+                  prefixIcon: Icon(Icons.calendar_month_rounded),
+                  contentPadding: EdgeInsets.symmetric(vertical: 4),
+                ),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<DateTime?>(
+                    key: const ValueKey('customer-month'),
+                    value: _month,
+                    isExpanded: true,
+                    isDense: true,
+                    items: [
+                      const DropdownMenuItem<DateTime?>(
+                        value: null,
+                        child: Text('All time'),
+                      ),
+                      for (final m in months)
+                        DropdownMenuItem<DateTime?>(
+                          value: m,
+                          child: Text(_label(m)),
+                        ),
+                    ],
+                    onChanged: (m) => setState(() => _month = m),
+                  ),
+                ),
+              ),
+            ),
+            if (month != null)
+              Text(
+                '${customers.valueOrNull?.length ?? 0} customers ordered in '
+                '${_label(month)}',
+                key: const ValueKey('customer-month-count'),
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textDark,
+                ),
+              ),
+          ],
         ),
         const SizedBox(height: 16),
         AsyncView(
@@ -57,8 +131,10 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
                   child: Center(
                     child: Text(
                       all.isEmpty
-                          ? 'No customers yet. They appear after their '
-                              'first order.'
+                          ? month != null
+                              ? 'No customer ordered in ${_label(month)}.'
+                              : 'No customers yet. They appear after their '
+                                  'first order.'
                           : 'No customers match this search.',
                       style: const TextStyle(color: AppColors.textMuted),
                     ),
@@ -183,7 +259,7 @@ class _CustomerDialog extends StatelessWidget {
                             ],
                           ),
                         ),
-                        StatusPill(o.status.label, orderStatusColor(o.status)),
+                        StatusPill(o.statusLabel, orderStatusColor(o.status)),
                         SizedBox(
                           width: 84,
                           child: Text(

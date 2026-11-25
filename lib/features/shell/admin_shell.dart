@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../stores/stores_screen.dart';
 import '../../core/providers.dart';
 import '../../core/router.dart';
 import '../../core/theme.dart';
@@ -24,11 +25,14 @@ const _items = [
   _NavItem('Customers', Icons.people_alt_rounded, Routes.customers),
   _NavItem('Riders', Icons.delivery_dining_rounded, Routes.riders),
   _NavItem('Coupons', Icons.local_offer_rounded, Routes.coupons),
+  _NavItem('Slab offers', Icons.redeem_rounded, Routes.offers),
   _NavItem('Demand', Icons.insights_rounded, Routes.demand),
+  _NavItem('Notify customers', Icons.campaign_rounded, Routes.announcements),
   _NavItem('Reports', Icons.bar_chart_rounded, Routes.reports),
   _NavItem('Storefront', Icons.storefront_rounded, Routes.storefront),
   _NavItem('Help and legal', Icons.help_center_rounded, Routes.content),
   _NavItem('Service areas', Icons.location_on_rounded, Routes.areas),
+  _NavItem('Stores', Icons.store_mall_directory_rounded, Routes.stores),
 ];
 
 /// Sidebar on wide screens, drawer on narrow ones.
@@ -133,7 +137,8 @@ class _Sidebar extends ConsumerWidget {
                 style: TextStyle(color: Color(0xB3FFFFFF), fontSize: 12),
               ),
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 14),
+            const StoreSwitcher(),
             // Scrolls on short windows instead of overflowing.
             Expanded(
               child: ListView(

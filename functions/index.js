@@ -4,7 +4,14 @@ const functions = require('firebase-functions/v1');
 const admin = require('firebase-admin');
 const { newAssignment, cancelledForRider, displayId } = require('./notify');
 const { customerNotice } = require('./customer');
-const { quantities, pendingWork, hasWork, nextStock } = require('./stock');
+const { TOPIC, announcementMessage } = require('./announce');
+const {
+  quantities,
+  pendingWork,
+  hasWork,
+  nextStock,
+  stockTarget,
+} = require('./stock');
 const {
   payablePaise,
   cannotPayReason,
@@ -12,6 +19,7 @@ const {
   validWebhookSignature,
   webhookAction,
   needsRefund,
+  paymentProblem,
 } = require('./payments');
 
 admin.initializeApp();
@@ -155,8 +163,10 @@ exports.keepStockAndWallet = orderChanges.onWrite(async (change, context) => {
         const sign = work.takeStock ? -1 : 1;
         products.forEach((snap, i) => {
           if (!snap.exists) return;
-          const next = nextStock(snap.data().stockQty, sign * qty[ids[i]]);
-          if (next !== null) tx.update(snap.ref, { stockQty: next });
+          // The serving store's own count, when the product has one.
+          const target = stockTarget(snap.data(), fresh.storeId);
+          const next = nextStock(target.current, sign * qty[ids[i]]);
+          if (next !== null) tx.update(snap.ref, { [target.field]: next });
         });
         if (work.takeStock) update.stockTaken = true;
         else update.stockReturned = true;
@@ -232,13 +242,14 @@ async function razorpay(path, body) {
   const auth = Buffer.from(
     process.env.RAZORPAY_KEY_ID + ':' + process.env.RAZORPAY_KEY_SECRET,
   ).toString('base64');
+  // With no body, the call reads (GET) instead of creating (POST).
   const response = await fetch('https://api.razorpay.com/v1' + path, {
-    method: 'POST',
+    method: body === undefined ? 'GET' : 'POST',
     headers: {
       Authorization: 'Basic ' + auth,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(body),
+    body: body === undefined ? undefined : JSON.stringify(body),
   });
   const json = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -342,7 +353,40 @@ exports.verifyPayment = withRazorpay.https.onCall(async (data, context) => {
       'This payment could not be confirmed.',
     );
   }
-  await ref.update({ paymentStatus: 'paid', paymentId });
+  // Ask Razorpay what really happened to this payment. A success is
+  // accepted only if Razorpay records it as paid, for this order and for
+  // the right amount.
+  let payment;
+  try {
+    payment = await razorpay('/payments/' + encodeURIComponent(paymentId));
+  } catch (error) {
+    // Razorpay could not be asked just now. The webhook settles it; the
+    // app shows the order as pending until then.
+    functions.logger.error('Could not look up payment', paymentId, error);
+    throw new functions.https.HttpsError(
+      'unavailable',
+      'The payment is being confirmed.',
+    );
+  }
+  const problem = paymentProblem(payment, order);
+  if (problem) {
+    functions.logger.warn('Payment refused for', orderId, problem);
+    throw new functions.https.HttpsError('permission-denied', problem);
+  }
+  await ref.update({
+    paymentStatus: 'paid',
+    paymentId,
+    // How it was paid, for the store: "upi", "card", "netbanking"...
+    paidVia: payment.method || null,
+    paidVpa: payment.vpa || null,
+  });
+  functions.logger.info(
+    'Order paid',
+    orderId,
+    paymentId,
+    payment.method,
+    payment.status,
+  );
   return { status: 'paid' };
 });
 
@@ -444,6 +488,40 @@ exports.refundCancelledOrder = withRazorpay.firestore
         error,
       );
       await ref.update({ refundError: String(error.message || error) });
+    }
+    return null;
+  });
+
+/**
+ * Sends a notification the store typed in the admin web ("Notify
+ * customers") to every customer phone. Runs when the admin web adds a
+ * document to `announcements`, and records on it whether it was sent.
+ */
+exports.sendAnnouncement = functions.firestore
+  .document('announcements/{id}')
+  .onCreate(async (snap) => {
+    const note = announcementMessage(snap.data());
+    if (!note) {
+      await snap.ref.update({ status: 'failed', error: 'Empty message' });
+      return null;
+    }
+    try {
+      await admin.messaging().send({
+        topic: TOPIC,
+        notification: note,
+        data: { type: 'offer' },
+        android: {
+          priority: 'high',
+          notification: { sound: 'default', defaultVibrateTimings: true },
+        },
+      });
+      await snap.ref.update({ status: 'sent', sentAt: Date.now() });
+    } catch (error) {
+      functions.logger.error('Could not send announcement', error);
+      await snap.ref.update({
+        status: 'failed',
+        error: String((error && error.message) || error),
+      });
     }
     return null;
   });

@@ -1,7 +1,10 @@
+import 'rider_documents_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../stores/stores.dart';
+import '../stores/stores_screen.dart';
 import '../../core/formatters.dart';
 import '../../core/providers.dart';
 import '../../core/theme.dart';
@@ -231,6 +234,16 @@ class RidersScreen extends ConsumerWidget {
                                       repo.saveRider(r.copyWith(active: v)),
                                 ),
                                 IconButton(
+                                  key: ValueKey('rider-documents-${r.id}'),
+                                  tooltip: 'Documents of ${r.name}',
+                                  icon: const Icon(Icons.badge_outlined),
+                                  onPressed: () => showDialog<void>(
+                                    context: context,
+                                    builder: (_) =>
+                                        RiderDocumentsDialog(rider: r),
+                                  ),
+                                ),
+                                IconButton(
                                   tooltip: 'Edit ${r.name}',
                                   icon: const Icon(Icons.edit_outlined),
                                   onPressed: () => _openForm(context, r),
@@ -300,6 +313,7 @@ class _RiderDialogState extends ConsumerState<_RiderDialog> {
   final _formKey = GlobalKey<FormState>();
   late final _name = TextEditingController(text: widget.rider?.name);
   late final _phone = TextEditingController(text: widget.rider?.phone);
+  late String? _storeId = widget.rider?.storeId;
   bool _saving = false;
 
   @override
@@ -311,12 +325,21 @@ class _RiderDialogState extends ConsumerState<_RiderDialog> {
 
   Future<void> _save() async {
     if (_saving || !_formKey.currentState!.validate()) return;
+    final stores = ref.read(storesProvider).valueOrNull ?? const <Store>[];
+    final storeId = ref.read(adminStoreIdProvider).valueOrNull ??
+        _storeId ??
+        ref.read(activeStoreIdProvider);
+    if (stores.isNotEmpty && storeId == null) {
+      showMessage(context, 'Choose the store this rider delivers for.');
+      return;
+    }
     setState(() => _saving = true);
     final rider = Rider(
       id: widget.rider?.id ?? '',
       name: _name.text.trim(),
       phone: _phone.text.trim(),
       active: widget.rider?.active ?? true,
+      storeId: storeId,
     );
     try {
       await ref.read(ridersRepositoryProvider).saveRider(rider);
@@ -368,6 +391,12 @@ class _RiderDialogState extends ConsumerState<_RiderDialog> {
                   labelText: 'Mobile number',
                   prefixText: '+91 ',
                 ),
+              ),
+              const SizedBox(height: 14),
+              StoreField(
+                width: double.infinity,
+                value: _storeId ?? ref.watch(activeStoreIdProvider),
+                onChanged: (id) => setState(() => _storeId = id),
               ),
             ],
           ),

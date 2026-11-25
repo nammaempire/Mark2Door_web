@@ -6,6 +6,7 @@ import '../../core/providers.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import '../../models/storefront.dart';
+import 'faq_drafts.dart';
 import 'legal_drafts.dart';
 
 /// Text the customer app shows under Account: help questions, terms and
@@ -19,127 +20,226 @@ class ContentScreen extends ConsumerWidget {
     final faqs = ref.watch(faqsProvider);
     final pages = ref.watch(legalPagesProvider);
 
-    void openFaq([Faq? faq]) => showDialog<void>(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => _FaqDialog(faq: faq),
-        );
-
     return AdminPage(
       title: 'Help and legal',
-      subtitle: 'Help questions, terms and privacy policy shown in the '
-          'customer app.',
+      subtitle: 'Help questions for the customer and delivery apps, terms '
+          'and privacy policy.',
       children: [
         AsyncView(
           value: pages,
-          data: (saved) => Panel(
-            title: 'Legal pages',
-            child: Column(
-              children: [
-                for (final (i, id) in LegalPage.ids.indexed) ...[
-                  if (i > 0) const Divider(),
-                  _LegalRow(pageId: id, page: saved[id]),
-                ],
-              ],
-            ),
+          data: (saved) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Panel(
+                title: 'Customer app legal pages',
+                child: Column(
+                  children: [
+                    for (final (i, id) in LegalPage.ids.indexed) ...[
+                      if (i > 0) const Divider(),
+                      _LegalRow(pageId: id, page: saved[id]),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 20),
+              Panel(
+                title: 'Delivery app legal pages',
+                child: Column(
+                  children: [
+                    for (final (i, id) in LegalPage.deliveryIds.indexed) ...[
+                      if (i > 0) const Divider(),
+                      _LegalRow(pageId: id, page: saved[id]),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
         const SizedBox(height: 20),
         AsyncView(
           value: faqs,
-          data: (list) => Panel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(
-                  children: [
-                    const Expanded(
-                      child: Text(
-                        'Help questions',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.textDark,
-                        ),
-                      ),
-                    ),
-                    OutlinedButton.icon(
-                      key: const ValueKey('add-faq-button'),
-                      onPressed: openFaq,
-                      style: OutlinedButton.styleFrom(
-                        minimumSize: const Size(160, 44),
-                      ),
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('Add question'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                if (list.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(20),
-                    child: Center(
-                      child: Text(
-                        'No questions yet. The help page shows only the '
-                        'email button.',
-                        style: TextStyle(color: AppColors.textMuted),
-                      ),
-                    ),
-                  ),
-                for (final (i, faq) in list.indexed) ...[
-                  if (i > 0) const Divider(),
-                  ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      faq.question,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w700,
-                        color: AppColors.textDark,
-                      ),
-                    ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 4),
-                      child: Text(
-                        faq.answer,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    trailing: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: 'Edit question',
-                          icon: const Icon(Icons.edit_outlined),
-                          onPressed: () => openFaq(faq),
-                        ),
-                        IconButton(
-                          key: ValueKey('delete-faq-${faq.id}'),
-                          tooltip: 'Delete question',
-                          icon: const Icon(Icons.delete_outline_rounded),
-                          onPressed: () async {
-                            final ok = await confirm(
-                              context,
-                              title: 'Delete this question?',
-                              message: 'It will be removed from the help page.',
-                              action: 'Delete',
-                            );
-                            if (ok) {
-                              await ref
-                                  .read(contentRepositoryProvider)
-                                  .deleteFaq(faq.id);
-                            }
-                          },
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ],
-            ),
+          data: (list) => Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _FaqPanel(app: Faq.customer, all: list),
+              const SizedBox(height: 20),
+              _FaqPanel(app: Faq.delivery, all: list),
+            ],
           ),
         ),
       ],
+    );
+  }
+}
+
+/// The help questions of one app, with add, edit and delete, and a
+/// button that adds the ready-written questions.
+class _FaqPanel extends ConsumerWidget {
+  const _FaqPanel({required this.app, required this.all});
+
+  final String app;
+  final List<Faq> all;
+
+  bool get _delivery => app == Faq.delivery;
+
+  /// Keys keep their old names for the customer app.
+  String _key(String name) => _delivery ? '$name-delivery' : name;
+
+  Future<void> _addSuggested(
+    BuildContext context,
+    WidgetRef ref,
+    List<Faq> list,
+  ) async {
+    final have = {for (final f in list) f.question.trim().toLowerCase()};
+    final missing = [
+      for (final d in faqDrafts(app))
+        if (!have.contains(d.question.toLowerCase())) d,
+    ];
+    if (missing.isEmpty) {
+      showMessage(context, 'All suggested questions are already here.');
+      return;
+    }
+    try {
+      final repo = ref.read(contentRepositoryProvider);
+      for (final d in missing) {
+        await repo.saveFaq(
+          Faq(id: '', question: d.question, answer: d.answer, app: app),
+        );
+      }
+      if (context.mounted) {
+        showMessage(context, '${missing.length} questions added');
+      }
+    } catch (_) {
+      if (context.mounted) {
+        showMessage(context, "Couldn't add the questions. Try again.");
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final list = [
+      for (final f in all)
+        if (f.app == app) f,
+    ];
+    void openFaq([Faq? faq]) => showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => _FaqDialog(faq: faq, app: app),
+        );
+
+    return Panel(
+      key: ValueKey(_key('faq-panel')),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 8,
+            children: [
+              Text(
+                _delivery
+                    ? 'Delivery app questions (${list.length})'
+                    : 'Customer app questions (${list.length})',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: AppColors.textDark,
+                ),
+              ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  TextButton.icon(
+                    key: ValueKey(_key('suggest-faq-button')),
+                    onPressed: () => _addSuggested(context, ref, list),
+                    icon: const Icon(Icons.auto_awesome_outlined),
+                    label: const Text('Add suggested questions'),
+                  ),
+                  OutlinedButton.icon(
+                    key: ValueKey(_key('add-faq-button')),
+                    onPressed: openFaq,
+                    style: OutlinedButton.styleFrom(
+                      minimumSize: const Size(160, 44),
+                    ),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Add question'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (list.isEmpty)
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Center(
+                child: Text(
+                  _delivery
+                      ? 'No questions yet. The delivery app\'s Help page is '
+                          'empty.'
+                      : 'No questions yet. The help page shows only the '
+                          'email button.',
+                  style: const TextStyle(color: AppColors.textMuted),
+                ),
+              ),
+            ),
+          for (final (i, faq) in list.indexed) ...[
+            if (i > 0) const Divider(),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: Text(
+                faq.question,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: AppColors.textDark,
+                ),
+              ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  faq.answer,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    key: ValueKey('edit-faq-${faq.id}'),
+                    tooltip: 'Edit question',
+                    icon: const Icon(Icons.edit_outlined),
+                    onPressed: () => openFaq(faq),
+                  ),
+                  IconButton(
+                    key: ValueKey('delete-faq-${faq.id}'),
+                    tooltip: 'Delete question',
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    onPressed: () async {
+                      final ok = await confirm(
+                        context,
+                        title: 'Delete this question?',
+                        message: 'It will be removed from the help page.',
+                        action: 'Delete',
+                      );
+                      if (ok) {
+                        await ref
+                            .read(contentRepositoryProvider)
+                            .deleteFaq(faq.id);
+                      }
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
@@ -159,7 +259,7 @@ class _LegalRow extends ConsumerWidget {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       leading: Icon(
-        pageId == LegalPage.privacyId
+        LegalPage.isPrivacy(pageId)
             ? Icons.privacy_tip_outlined
             : Icons.description_outlined,
         color: AppColors.primary,
@@ -206,7 +306,7 @@ class _LegalRow extends ConsumerWidget {
                     final ok = await confirm(
                       context,
                       title: 'Delete the ${title.toLowerCase()}?',
-                      message: 'Customers will see it as not available '
+                      message: 'The app will show it as not available '
                           'until you write it again.',
                       action: 'Delete',
                     );
@@ -356,6 +456,32 @@ class _LegalDialogState extends ConsumerState<_LegalDialog> {
         ),
       ),
       actions: [
+        // A page that is already published can be replaced with the
+        // latest ready-made text; nothing changes until Save.
+        if (!_isDraft)
+          TextButton.icon(
+            key: const ValueKey('load-draft-button'),
+            onPressed: _saving
+                ? null
+                : () async {
+                    final ok = await confirm(
+                      context,
+                      title: 'Replace with the latest draft?',
+                      message: 'The text in the box is replaced with the '
+                          'ready-made draft. The live page changes only '
+                          'when you press Save.',
+                      action: 'Replace',
+                    );
+                    if (!ok) return;
+                    _body.text = legalDraft(
+                      widget.pageId,
+                      ref.read(storeSettingsProvider).valueOrNull,
+                      DateTime.now(),
+                    );
+                  },
+            icon: const Icon(Icons.restart_alt_rounded),
+            label: const Text('Load latest draft'),
+          ),
         TextButton(
           onPressed: _saving ? null : () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
@@ -372,9 +498,12 @@ class _LegalDialogState extends ConsumerState<_LegalDialog> {
 }
 
 class _FaqDialog extends ConsumerStatefulWidget {
-  const _FaqDialog({this.faq});
+  const _FaqDialog({this.faq, required this.app});
 
   final Faq? faq;
+
+  /// The app a new question is for.
+  final String app;
 
   @override
   ConsumerState<_FaqDialog> createState() => _FaqDialogState();
@@ -406,6 +535,7 @@ class _FaqDialogState extends ConsumerState<_FaqDialog> {
               question: _question.text.trim(),
               answer: _answer.text.trim(),
               sortOrder: widget.faq?.sortOrder ?? 0,
+              app: widget.faq?.app ?? widget.app,
             ),
           );
       if (!mounted) return;

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../stores/stores.dart';
 import '../../core/emoji_picker.dart';
 import '../../core/providers.dart';
 import '../../core/theme.dart';
@@ -72,6 +73,149 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
       widget.product?.categoryId ??
       (widget.categories.isEmpty ? null : widget.categories.first.id);
   late bool _inStock = widget.product?.inStock ?? true;
+
+  /// Each store's own count and "In stock" switch, by store id. Filled in
+  /// as the stores load; see [_storeStockSection].
+  final _storeQty = <String, TextEditingController>{};
+  final _storeIn = <String, bool>{};
+
+  TextEditingController _qtyFor(String storeId) => _storeQty.putIfAbsent(
+        storeId,
+        () => TextEditingController(
+          text: widget.product?.storeStock[storeId]?.stockQty?.toString() ??
+              '',
+        ),
+      );
+
+  bool _inFor(String storeId) =>
+      _storeIn[storeId] ??
+      widget.product?.storeStock[storeId]?.inStock ??
+      true;
+
+  /// What to save as per-store stock: the product's existing entries, with
+  /// every store on screen replaced by what was typed. A store left empty
+  /// and switched on has no count of its own and uses the default stock.
+  Map<String, StoreStock> _storeStockToSave() {
+    final result = {...?widget.product?.storeStock};
+    for (final id in _storeQty.keys) {
+      final text = _storeQty[id]!.text.trim();
+      final inStock = _inFor(id);
+      if (text.isEmpty && inStock) {
+        result.remove(id);
+      } else {
+        result[id] = StoreStock(
+          inStock: inStock,
+          stockQty: text.isEmpty ? null : int.parse(text),
+        );
+      }
+    }
+    return result;
+  }
+
+  /// "Stock in each store": one row per store with its quantity and its
+  /// own In stock switch. A store admin sees only their own store. Takes
+  /// no space for a business with one shop.
+  Widget _storeStockSection() {
+    final all = ref.watch(storesProvider).valueOrNull ?? const <Store>[];
+    final own = ref.watch(adminStoreIdProvider).valueOrNull;
+    final stores =
+        own == null ? all : all.where((s) => s.id == own).toList();
+    if (stores.isEmpty) return const SizedBox.shrink();
+    var total = 0;
+    for (final s in stores) {
+      total += int.tryParse(_qtyFor(s.id).text.trim()) ?? 0;
+    }
+    return Container(
+      key: const ValueKey('store-stock-section'),
+      margin: const EdgeInsets.only(top: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: AppColors.background,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Stock in each store',
+            style: TextStyle(
+              fontWeight: FontWeight.w800,
+              color: AppColors.textDark,
+            ),
+          ),
+          const SizedBox(height: 2),
+          const Text(
+            'Split what you bought between your stores. Customers see the '
+            'stock of the store that delivers to their pincode, and each '
+            'order reduces only that store.',
+            style: TextStyle(fontSize: 12.5, color: AppColors.textMuted),
+          ),
+          for (final s in stores)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      s.name,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  SizedBox(
+                    width: 120,
+                    child: TextFormField(
+                      key: ValueKey('store-qty-${s.id}'),
+                      controller: _qtyFor(s.id),
+                      keyboardType: TextInputType.number,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.digitsOnly,
+                        LengthLimitingTextInputFormatter(6),
+                      ],
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        labelText: 'Quantity',
+                        isDense: true,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    children: [
+                      Switch(
+                        key: ValueKey('store-in-${s.id}'),
+                        value: _inFor(s.id),
+                        onChanged: (v) => setState(() => _storeIn[s.id] = v),
+                      ),
+                      const Text(
+                        'In stock',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          if (own == null) ...[
+            const SizedBox(height: 10),
+            Text(
+              'Total in stores: $total',
+              key: const ValueKey('store-stock-total'),
+              style: const TextStyle(
+                fontWeight: FontWeight.w700,
+                color: AppColors.textDark,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+  late bool _allIndia = widget.product?.allIndia ?? false;
   bool _saving = false;
 
   bool get _editing => widget.product != null;
@@ -87,6 +231,7 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
       _mrp,
       _description,
       ..._images,
+      ..._storeQty.values,
     ]) {
       c.dispose();
     }
@@ -266,6 +411,8 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
       subtitle: _subtitle.text.trim(),
       description: _description.text.trim(),
       inStock: _inStock,
+      allIndia: _allIndia,
+      storeStock: _storeStockToSave(),
       stockQty: _stock.text.trim().isEmpty
           ? null
           : int.parse(_stock.text.trim()),
@@ -470,6 +617,8 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
                     helperMaxLines: 3,
                   ),
                 ),
+                // With several stores, each one's own count.
+                _storeStockSection(),
                 const SizedBox(height: 6),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
@@ -480,6 +629,18 @@ class _ProductFormDialogState extends ConsumerState<ProductFormDialog> {
                   ),
                   value: _inStock,
                   onChanged: (v) => setState(() => _inStock = v),
+                ),
+                SwitchListTile(
+                  key: const ValueKey('all-india-switch'),
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Deliver all over India'),
+                  subtitle: const Text(
+                    'Shown on the Outstation tab to customers outside your '
+                    'service areas, as outstation delivery.',
+                    style: TextStyle(color: AppColors.textMuted),
+                  ),
+                  value: _allIndia,
+                  onChanged: (v) => setState(() => _allIndia = v),
                 ),
               ],
             ),

@@ -11,6 +11,8 @@ const { displayId, rupees } = require('./notify');
  *
  * Covered: order placed, payment pending, payment failed, refund sent,
  * delivery partner assigned, out for delivery, delivered and cancelled.
+ * Outstation orders (deliveryType "courier") are told packed and shipped
+ * with the tracking number instead of the delivery partner messages.
  * An order paid online is announced as "placed" only once the payment has
  * gone through, so a customer is never told about an order that then fails.
  */
@@ -29,6 +31,8 @@ function customerNotice(before, after, orderId) {
     (Number(after.totalPaise) || 0) - (Number(after.walletAppliedPaise) || 0);
   const wallet = Number(after.walletAppliedPaise) || 0;
   const online = after.paymentMethod === 'online';
+  const courier = after.deliveryType === 'courier';
+  const days = after.courierEta || 'a few days';
 
   // A new cash order is placed the moment it is created.
   if (!before) {
@@ -60,7 +64,10 @@ function customerNotice(before, after, orderId) {
   if (became('paymentStatus', 'paid') && online && after.status === 'placed') {
     return say(
       'Order placed ' + id,
-      'Payment received. We will deliver your order soon.',
+      courier
+        ? 'Payment received. Your order is being prepared and ' +
+            'reaches you in ' + days + '.'
+        : 'Payment received. We will deliver your order soon.',
     );
   }
   if (
@@ -99,8 +106,27 @@ function customerNotice(before, after, orderId) {
   if (became('status', 'delivered')) {
     return say(
       'Order ' + id + ' delivered',
-      'Enjoy! Open the app to rate your delivery.',
+      courier ? 'Your parcel has reached you. Enjoy!'
+        : 'Enjoy! Open the app to rate your delivery.',
     );
+  }
+  if (courier) {
+    if (became('status', 'pickedUp')) {
+      const tracking = after.trackingNumber;
+      return say(
+        'Order ' + id + ' shipped',
+        'Your parcel is on its way' + (after.courierName ? ' with ' + after.courierName : '') + '.' +
+          (tracking ? ' Tracking number ' + tracking + '.' : '') +
+          ' It reaches you in ' + days + ' from the order date.',
+      );
+    }
+    if (became('status', 'accepted')) {
+      return say(
+        'Order ' + id + ' packed',
+        'Your parcel is packed and will be shipped soon.',
+      );
+    }
+    return null;
   }
   if (became('status', 'pickedUp')) {
     return say(
