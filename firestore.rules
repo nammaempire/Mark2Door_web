@@ -9,6 +9,22 @@ service cloud.firestore {
       return signedIn()
           && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
+    // A store login is an admin whose admins/{uid} document names one
+    // store in `storeId`. The main admin's document has no storeId.
+    function adminStore() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.uid))
+          .data.get('storeId', '');
+    }
+    // The owner: may change business-wide data (prices, coupons, offers,
+    // settings, stores, wallets).
+    function isMainAdmin() {
+      return isAdmin() && adminStore() == '';
+    }
+    // The main admin, or the store login of the store [data] belongs to.
+    function isAdminOfStore(data) {
+      return isAdmin()
+          && (adminStore() == '' || data.storeId == adminStore());
+    }
     function isOwner(uid) {
       return signedIn() && request.auth.uid == uid;
     }
@@ -30,7 +46,15 @@ service cloud.firestore {
     // only admins write.
     match /products/{id} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow create, delete: if isMainAdmin();
+      // A store login may change only its own store's stock entry.
+      allow update: if isMainAdmin()
+          || (isAdmin()
+              && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['storeStock'])
+              && request.resource.data.storeStock
+                  .diff(resource.data.get('storeStock', {})).affectedKeys()
+                  .hasOnly([adminStore()]));
 
       // Customer reviews: one per customer per product, written only by
       // someone with a delivered order of their own. The store can
@@ -54,46 +78,86 @@ service cloud.firestore {
     // The business's shops. Apps read them; only admins change them.
     match /stores/{id} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow write: if isMainAdmin();
+    }
+
+    // Products a customer could not find and asked the store to get.
+    // A signed-in customer adds their own; only admins read, mark and
+    // delete them.
+    match /product_requests/{id} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'new'
+        && request.resource.data.product is string
+        && request.resource.data.product.size() <= 120
+        && request.resource.data.quantity is string
+        && request.resource.data.quantity.size() <= 40;
+      allow read, update, delete: if isMainAdmin();
+    }
+
+    // Daily sales totals, kept by the server for the dashboard and
+    // reports. Admins read them (a store login only its own store's);
+    // nobody writes them from an app.
+    match /stats_daily/{id} {
+      allow read: if isAdminOfStore(resource.data);
+      allow write: if false;
+    }
+    // Customer totals (orders and spend per customer, per month and
+    // for all time), kept by the server for the Customers page.
+    match /stats_customers/{id} {
+      allow read: if isAdminOfStore(resource.data);
+      allow write: if false;
+    }
+    // The main admin asks the server to recount the totals by adding a
+    // record here; the server writes the outcome back.
+    match /stats_jobs/{id} {
+      allow read: if isMainAdmin();
+      allow create: if isMainAdmin()
+          && request.resource.data.status == 'running';
+      allow update, delete: if false;
     }
 
     // Price slab offers: "order above 299 and pick one product for 9".
     // Apps read them; only admins change them.
     match /slab_offers/{id} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow write: if isMainAdmin();
     }
 
     // Notifications the store sends to every customer. Only admins can
     // write them; a server function does the sending.
     match /announcements/{id} {
-      allow read, write: if isAdmin();
+      allow read, write: if isMainAdmin();
     }
     match /categories/{id} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow write: if isMainAdmin();
     }
     match /service_areas/{pincode} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      // A store login manages only its own store's pincodes.
+      allow create: if isAdminOfStore(request.resource.data);
+      allow update: if isAdminOfStore(resource.data)
+          && isAdminOfStore(request.resource.data);
+      allow delete: if isAdminOfStore(resource.data);
     }
     match /banners/{id} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow write: if isMainAdmin();
     }
     match /settings/{doc} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow write: if isMainAdmin();
     }
     match /faqs/{id} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow write: if isMainAdmin();
     }
     // Terms and the privacy policy are public: the login page links to
     // them before anyone has signed in.
     match /pages/{id} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write: if isMainAdmin();
     }
 
     // Discount codes. Customers look a code up at checkout; admins manage
@@ -103,7 +167,7 @@ service cloud.firestore {
     // cancelled.
     match /coupons/{code} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow write: if isMainAdmin();
 
       match /uses/{uid} {
         allow read: if isAdmin() || isOwner(uid);
@@ -129,14 +193,19 @@ service cloud.firestore {
 
     // Riders: admins manage them; a rider can read their own record.
     match /riders/{id} {
-      allow read: if isAdmin() || isRiderWithPhone(resource.data.phone);
-      allow write: if isAdmin();
+      // A store login sees and manages only its own store's riders.
+      allow read: if isAdminOfStore(resource.data)
+          || isRiderWithPhone(resource.data.phone);
+      allow create: if isAdminOfStore(request.resource.data);
       // A rider deleting their own account removes their own record.
-      allow delete: if isRiderWithPhone(resource.data.phone);
+      allow delete: if isAdminOfStore(resource.data)
+          || isRiderWithPhone(resource.data.phone);
       // A rider can switch themselves on or off duty, and nothing else.
-      allow update: if isRiderWithPhone(resource.data.phone)
-          && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly(['active']);
+      allow update: if (isAdminOfStore(resource.data)
+              && isAdminOfStore(request.resource.data))
+          || (isRiderWithPhone(resource.data.phone)
+              && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['active']));
     }
     // The phone to notify for each rider, keyed by their 10-digit number.
     // Written by the delivery app; read only by the server function.
@@ -177,7 +246,8 @@ service cloud.firestore {
                     == get(/databases/$(database)/documents/wallets/$(request.auth.uid)).data.balancePaise - applied);
       }
 
-      allow read: if isAdmin()
+      // A store login reads and updates only its own store's orders.
+      allow read: if isAdminOfStore(resource.data)
           || (signedIn() && resource.data.userId == request.auth.uid)
           || isRiderWithPhone(resource.data.get('riderPhone', null));
       allow create: if signedIn()
@@ -193,7 +263,7 @@ service cloud.firestore {
       // only the server does that, after checking Razorpay's signature.
       // The one exception is an order the wallet paid for in full, where
       // no money goes through Razorpay.
-      allow update: if isAdmin()
+      allow update: if isAdminOfStore(resource.data)
           || (signedIn()
               && resource.data.userId == request.auth.uid
               && request.resource.data.diff(resource.data).affectedKeys()
@@ -271,17 +341,17 @@ service cloud.firestore {
           && request.resource.data.referrerUid != request.auth.uid
           && request.resource.data.status == 'joined'
           && !exists(/databases/$(database)/documents/deleted_accounts/$(request.auth.token.phone_number));
-      allow update, delete: if isAdmin();
+      allow update, delete: if isMainAdmin();
     }
     // m2d wallet. Money goes in only through the admin console (rewards
     // and refunds). The customer's app can only take money out, which it
     // does when paying for an order.
     match /wallets/{uid} {
       allow read: if isAdmin() || isOwner(uid);
-      allow create: if isAdmin();
+      allow create: if isMainAdmin();
       // The customer can delete their own wallet with their account.
-      allow delete: if isAdmin() || isOwner(uid);
-      allow update: if isAdmin()
+      allow delete: if isMainAdmin() || isOwner(uid);
+      allow update: if isMainAdmin()
           || (isOwner(uid)
               && request.resource.data.diff(resource.data).affectedKeys()
                   .hasOnly(['balancePaise', 'updatedAt'])
@@ -290,7 +360,7 @@ service cloud.firestore {
 
       match /transactions/{txn} {
         allow read: if isAdmin() || isOwner(uid);
-        allow create: if isAdmin()
+        allow create: if isMainAdmin()
             || (isOwner(uid)
                 && request.resource.data.amountPaise < 0
                 && request.resource.data.type == 'order_payment');

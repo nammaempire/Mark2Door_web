@@ -100,7 +100,8 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
     await ref.read(catalogRepositoryProvider).setStoreStock(
           p.id,
           storeId,
-          inStock: p.inStockAt(storeId),
+          // The store's own switch, left as it is.
+          inStock: p.storeStock[storeId]?.inStock ?? true,
           stockQty: qty,
         );
   }
@@ -109,6 +110,10 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
   Widget build(BuildContext context) {
     // The store whose stock is shown; null shows the default stock.
     final store = ref.watch(activeStoreIdProvider);
+    // A store login keeps its own store's stock and nothing else: no
+    // adding, editing or deleting products. The database rules refuse
+    // the same.
+    final storeStaff = ref.watch(isStoreStaffProvider);
     final stores = ref.watch(storesProvider).valueOrNull ?? const <Store>[];
     final products = ref.watch(productsProvider);
     final categories =
@@ -119,6 +124,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
       title: 'Products',
       subtitle: 'Changes show up in the customer app straight away.',
       actions: [
+        if (!storeStaff)
         FilledButton.icon(
           key: const ValueKey('add-product-button'),
           onPressed: categories.isEmpty ? null : () => _openForm(categories),
@@ -249,7 +255,9 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                               // Clicking the product opens it for editing.
                               DataCell(
                                 _ProductCell(product: p),
-                                onTap: () => _openForm(categories, p),
+                                onTap: () => storeStaff && store != null
+                                    ? _editStoreStock(p, store)
+                                    : _openForm(categories, p),
                               ),
                               if (showCategory)
                                 DataCell(
@@ -351,10 +359,20 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                                     : const Text('–'),
                               ),
                               DataCell(
-                                Switch(
+                                Tooltip(
+                                  // The main switch (under "All stores")
+                                  // turns a product off everywhere; a
+                                  // store cannot turn it back on.
+                                  message: store != null && p.offEverywhere
+                                      ? 'Switched off for all stores. Choose '
+                                          '"All stores" to switch it on.'
+                                      : '',
+                                  child: Switch(
                                   key: ValueKey('stock-${p.id}'),
                                   value: p.inStockAt(store),
-                                  onChanged: (v) => store == null
+                                  onChanged: store != null && p.offEverywhere
+                                      ? null
+                                      : (v) => store == null
                                       ? ref
                                           .read(catalogRepositoryProvider)
                                           .setInStock(p.id, inStock: v)
@@ -367,12 +385,14 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                                             inStock: v,
                                             stockQty: p.stockQtyAt(store),
                                           ),
+                                  ),
                                 ),
                               ),
                               DataCell(
                                 Row(
                                   mainAxisSize: MainAxisSize.min,
                                   children: [
+                                    if (!storeStaff)
                                     IconButton(
                                       key: ValueKey('edit-${p.id}'),
                                       tooltip: 'Edit ${p.name}',
@@ -391,6 +411,7 @@ class _ProductsScreenState extends ConsumerState<ProductsScreen> {
                                             ProductReviewsDialog(product: p),
                                       ),
                                     ),
+                                    if (!storeStaff)
                                     IconButton(
                                       key: ValueKey('delete-${p.id}'),
                                       tooltip: 'Delete ${p.name}',

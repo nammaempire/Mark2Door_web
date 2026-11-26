@@ -66,9 +66,12 @@ const kBannerLayouts = <String, String>{
   'offerTag': 'Offer tag',
   'watermark': 'Watermark',
   // Festival designs: animated 3D artwork with their own colours.
-  'christmas': 'Christmas (3D)',
-  'newYear': 'New Year (3D)',
-  'pongal': 'Pongal (3D)',
+  'christmas': 'Christmas gift (3D)',
+  'christmasTree': 'Christmas tree (3D)',
+  'newYear': 'New Year fireworks (3D)',
+  'newYearBalloons': 'New Year balloons (3D)',
+  'pongal': 'Pongal pot (3D)',
+  'pongalKites': 'Pongal kites (3D)',
 };
 
 /// Mirrors `banners/{id}`: a promo card on the customer home page.

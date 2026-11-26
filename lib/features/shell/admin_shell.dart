@@ -4,33 +4,45 @@ import 'package:go_router/go_router.dart';
 
 import '../stores/stores_screen.dart';
 import '../../core/providers.dart';
+import '../stores/stores.dart';
 import '../../core/router.dart';
 import '../../core/theme.dart';
-import '../../models/order.dart';
 
 @immutable
 class _NavItem {
-  const _NavItem(this.label, this.icon, this.path);
+  const _NavItem(this.label, this.icon, this.path, {this.mainOnly = false});
 
   final String label;
   final IconData icon;
   final String path;
+
+  /// Business-wide pages: hidden from a store login.
+  final bool mainOnly;
 }
 
 const _items = [
   _NavItem('Dashboard', Icons.space_dashboard_rounded, Routes.dashboard),
   _NavItem('Orders', Icons.receipt_long_rounded, Routes.orders),
   _NavItem('Products', Icons.inventory_2_rounded, Routes.products),
-  _NavItem('Categories', Icons.category_rounded, Routes.categories),
+  _NavItem('Categories', Icons.category_rounded, Routes.categories,
+      mainOnly: true),
   _NavItem('Customers', Icons.people_alt_rounded, Routes.customers),
   _NavItem('Riders', Icons.delivery_dining_rounded, Routes.riders),
-  _NavItem('Coupons', Icons.local_offer_rounded, Routes.coupons),
-  _NavItem('Slab offers', Icons.redeem_rounded, Routes.offers),
-  _NavItem('Demand', Icons.insights_rounded, Routes.demand),
-  _NavItem('Notify customers', Icons.campaign_rounded, Routes.announcements),
+  _NavItem('Coupons', Icons.local_offer_rounded, Routes.coupons,
+      mainOnly: true),
+  _NavItem('Slab offers', Icons.redeem_rounded, Routes.offers,
+      mainOnly: true),
+  _NavItem('Demand', Icons.insights_rounded, Routes.demand,
+      mainOnly: true),
+  _NavItem('Product requests', Icons.playlist_add_rounded, Routes.requests,
+      mainOnly: true),
+  _NavItem('Notify customers', Icons.campaign_rounded, Routes.announcements,
+      mainOnly: true),
   _NavItem('Reports', Icons.bar_chart_rounded, Routes.reports),
-  _NavItem('Storefront', Icons.storefront_rounded, Routes.storefront),
-  _NavItem('Help and legal', Icons.help_center_rounded, Routes.content),
+  _NavItem('Storefront', Icons.storefront_rounded, Routes.storefront,
+      mainOnly: true),
+  _NavItem('Help and legal', Icons.help_center_rounded, Routes.content,
+      mainOnly: true),
   _NavItem('Service areas', Icons.location_on_rounded, Routes.areas),
   _NavItem('Stores', Icons.store_mall_directory_rounded, Routes.stores),
 ];
@@ -44,20 +56,6 @@ class AdminShell extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // Wallet work is done here because this console is the only trusted
-    // place that sees every order: whenever orders change, pay any invite
-    // reward that a delivered order has earned and return wallet money
-    // from cancelled ones. Each order is settled once.
-    ref.listen(ordersProvider, (_, next) {
-      final repo = ref.read(ordersRepositoryProvider);
-      for (final order in next.valueOrNull ?? const <Order>[]) {
-        if (order.needsSettlement) {
-          // A failure is retried the next time the order list updates.
-          repo.settle(order).catchError((Object _) {});
-        }
-      }
-    });
-
     final wide = MediaQuery.sizeOf(context).width >= 960;
     final sidebar = _Sidebar(location: location, inDrawer: !wide);
 
@@ -91,6 +89,7 @@ class _Sidebar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final storeStaff = ref.watch(isStoreStaffProvider);
     final email =
         ref.watch(authStateProvider).valueOrNull ??
         ref.watch(authRepositoryProvider).currentEmail ??
@@ -141,19 +140,23 @@ class _Sidebar extends ConsumerWidget {
             const StoreSwitcher(),
             // Scrolls on short windows instead of overflowing.
             Expanded(
-              child: ListView(
+              child: SingleChildScrollView(
                 padding: const EdgeInsets.only(top: 8),
-                children: [
-                  for (final item in _items)
-                    _NavTile(
-                      item: item,
-                      selected: item.path == location,
-                      onTap: () {
-                        if (inDrawer) Navigator.of(context).pop();
-                        context.go(item.path);
-                      },
-                    ),
-                ],
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (final item in _items)
+                      if (!(item.mainOnly && storeStaff))
+                      _NavTile(
+                        item: item,
+                        selected: item.path == location,
+                        onTap: () {
+                          if (inDrawer) Navigator.of(context).pop();
+                          context.go(item.path);
+                        },
+                      ),
+                  ],
+                ),
               ),
             ),
             const Divider(color: Color(0x33FFFFFF), indent: 16, endIndent: 16),

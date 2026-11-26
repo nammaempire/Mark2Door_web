@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mart2door_admin/features/stores/stores.dart';
 import 'package:mart2door_admin/features/offers/slab_offers.dart';
+import 'package:mart2door_admin/features/requests/product_requests.dart';
 import 'package:mart2door_admin/app.dart';
 import 'package:mart2door_admin/core/banner_art.dart';
 import 'package:mart2door_admin/core/emoji_picker.dart';
@@ -21,7 +22,11 @@ import 'package:mart2door_admin/models/storefront.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// End-to-end journeys against the sample-data repositories.
-Future<void> _pumpApp(WidgetTester tester, {bool signedIn = true}) async {
+Future<void> _pumpApp(
+  WidgetTester tester, {
+  bool signedIn = true,
+  List<Override> overrides = const [],
+}) async {
   tester.view.physicalSize = const Size(1440, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -32,7 +37,10 @@ Future<void> _pumpApp(WidgetTester tester, {bool signedIn = true}) async {
   final prefs = await SharedPreferences.getInstance();
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [sharedPreferencesProvider.overrideWithValue(prefs)],
+      overrides: [
+        sharedPreferencesProvider.overrideWithValue(prefs),
+        ...overrides,
+      ],
       child: const AdminApp(),
     ),
   );
@@ -71,6 +79,8 @@ void main() {
 
   testWidgets('add a product and see it in the list', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/products')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/products')));
     await tester.pumpAndSettle();
     expect(find.byType(ProductsScreen), findsOneWidget);
@@ -105,6 +115,8 @@ void main() {
 
   testWidgets('search filters products and delete removes one', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/products')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/products')));
     await tester.pumpAndSettle();
 
@@ -155,6 +167,8 @@ void main() {
 
   testWidgets('orders page lists orders and filters by status', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/orders')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/orders')));
     await tester.pumpAndSettle();
     expect(find.textContaining('Showing 25 of'), findsOneWidget);
@@ -168,6 +182,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/categories')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/categories')));
     await tester.pumpAndSettle();
 
@@ -228,6 +244,8 @@ void main() {
 
   testWidgets('delivery settings validate and save', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/storefront')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/storefront')));
     await tester.pumpAndSettle();
 
@@ -256,6 +274,8 @@ void main() {
 
   testWidgets('add a banner and hide it', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/storefront')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/storefront')));
     await tester.pumpAndSettle();
 
@@ -344,9 +364,19 @@ void main() {
 
   testWidgets('festival banners can be picked and saved', (tester) async {
     expect(bannerLayouts, containsAll(['christmas', 'newYear', 'pongal']));
-    expect(kBannerLayouts['pongal'], 'Pongal (3D)');
+    expect(kBannerLayouts['pongal'], 'Pongal pot (3D)');
+    // Two designs for each festival, each with a name in the picker.
+    expect(
+      bannerLayouts,
+      containsAll(['christmasTree', 'newYearBalloons', 'pongalKites']),
+    );
+    for (final layout in bannerLayouts) {
+      expect(kBannerLayouts[layout], isNotNull, reason: layout);
+    }
 
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/storefront')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/storefront')));
     await tester.pumpAndSettle();
     await tester.ensureVisible(find.byKey(const ValueKey('add-banner-button')));
@@ -412,6 +442,8 @@ void main() {
 
   testWidgets('pick and clear a product emoji', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/products')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/products')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('add-product-button')));
@@ -437,6 +469,8 @@ void main() {
 
   testWidgets('extra charges: switch on handling fee and save', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/storefront')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/storefront')));
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
@@ -476,6 +510,8 @@ void main() {
 
   testWidgets('add up to five photo links to a product', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/products')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/products')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('add-product-button')));
@@ -568,6 +604,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/content')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/content')));
     await tester.pumpAndSettle();
     final container = ProviderScope.containerOf(
@@ -653,6 +691,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/storefront')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/storefront')));
     await tester.pumpAndSettle();
     final email = find.byKey(const ValueKey('setting-support-email'));
@@ -718,6 +758,8 @@ void main() {
 
   testWidgets('add a rider', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/riders')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/riders')));
     await tester.pumpAndSettle();
     expect(find.text('Suresh Kumar'), findsOneWidget);
@@ -743,6 +785,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/customers')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/customers')));
     await tester.pumpAndSettle();
     expect(find.textContaining('6 of 6 customers'), findsOneWidget);
@@ -763,6 +807,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/reports')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/reports')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('export-csv-button')), findsOneWidget);
@@ -781,6 +827,8 @@ void main() {
 
   testWidgets('assign a rider to a live order', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/orders')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/orders')));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Placed'));
@@ -802,6 +850,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/orders')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/orders')));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Placed'));
@@ -896,6 +946,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/riders')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/riders')));
     await tester.pumpAndSettle();
 
@@ -934,6 +986,8 @@ void main() {
 
   testWidgets('add a coupon, switch it off and delete it', (tester) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/coupons')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/coupons')));
     await tester.pumpAndSettle();
     expect(find.text('SAVE10'), findsOneWidget);
@@ -1024,6 +1078,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/products')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/products')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('add-product-button')));
@@ -1097,6 +1153,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/demand')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/demand')));
     await tester.pumpAndSettle();
 
@@ -1162,6 +1220,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/products')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/products')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('add-product-button')));
@@ -1225,6 +1285,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/storefront')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/storefront')));
     await tester.pumpAndSettle();
     final fee = find.byKey(const ValueKey('setting-courier-fee'));
@@ -1263,6 +1325,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/orders')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/orders')));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(ChoiceChip, 'Placed'));
@@ -1319,6 +1383,8 @@ void main() {
     tester,
   ) async {
     await _pumpApp(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/notify')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('nav-/notify')));
     await tester.pumpAndSettle();
     // Both boxes are needed.
@@ -1366,6 +1432,10 @@ void main() {
     expect(after.length, before + 1);
     expect(after.first.riderName, holder.riderName);
     expect(after.first.amountPaise, greaterThan(0));
+
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/customers')));
+
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('nav-/customers')));
     await tester.pumpAndSettle();
@@ -1449,6 +1519,20 @@ void main() {
     expect(updated.stockQtyAt('store1'), 0);
     expect(updated.canBeOrderedAt('store1'), isFalse);
     expect(updated.canBeOrderedAt(null), first.canBeOrdered);
+
+    // The main switch is the master: off, the product is off at every
+    // store, even one whose own switch is on.
+    final master = Product.fromMap('p', {
+      ...first.toMap(),
+      'inStock': false,
+      'storeStock': {
+        'store1': {'inStock': true, 'stockQty': 5},
+      },
+    });
+    expect(master.offEverywhere, isTrue);
+    expect(master.inStockAt('store1'), isFalse);
+    expect(master.canBeOrderedAt('store1'), isFalse);
+    expect(master.inStockAt(null), isFalse);
     expect(updated.stockQtyAt('store2'), first.stockQty);
     expect(
       Product.fromMap('x', updated.toMap()).stockQtyAt('store1'),
@@ -1471,6 +1555,10 @@ void main() {
     final stores = container.read(storesRepositoryProvider);
     await stores.save(const Store(id: '', name: 'Nagercoil'));
     await stores.save(const Store(id: '', name: 'Marthandam'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const ValueKey('nav-/products')));
+
     await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('nav-/products')));
@@ -1669,6 +1757,110 @@ void main() {
       faqDrafts(Faq.customer).map((d) => d.question).toSet().length,
       faqDrafts(Faq.customer).length,
     );
+  });
+
+  testWidgets('product requests list what to get and who to call', (
+    tester,
+  ) async {
+    await _pumpApp(tester);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    final nav = find.byKey(const ValueKey('nav-/requests'));
+    await tester.ensureVisible(nav);
+    await tester.pumpAndSettle();
+    await tester.tap(nav);
+    await tester.pumpAndSettle();
+    for (final text in [
+      'Mysore sandal soap 125 g',
+      '3',
+      'Asha',
+      '+919876543210',
+      '560034',
+    ]) {
+      expect(find.text(text), findsOneWidget, reason: text);
+    }
+
+    Future<List<ProductRequest>> list() =>
+        container.read(productRequestsRepositoryProvider).watch().first;
+    await tester.ensureVisible(find.byKey(const ValueKey('request-called-q1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('request-called-q1')));
+    await tester.pumpAndSettle();
+    expect((await list()).firstWhere((r) => r.id == 'q1').contacted, isTrue);
+
+    await tester.ensureVisible(find.byKey(const ValueKey('request-delete-q2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('request-delete-q2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
+    expect((await list()).map((r) => r.id), ['q1']);
+    expect(find.text('Palm jaggery'), findsNothing);
+
+    // What the customer app writes is read back in full.
+    final read = ProductRequest.fromMap('x', const {
+      'product': 'Soap',
+      'quantity': '2',
+      'customerName': 'Navi',
+      'phone': '+919999999999',
+      'pincode': '629001',
+      'status': 'new',
+      'createdAt': 1795600000000,
+    });
+    expect(read.product, 'Soap');
+    expect(read.quantity, '2');
+    expect(read.pincode, '629001');
+    expect(read.contacted, isFalse);
+  });
+
+  testWidgets('a store login sees its own store only and no business pages', (
+    tester,
+  ) async {
+    final stores = FakeStoresRepository(adminStoreId: 'store1');
+    await stores.save(const Store(id: '', name: 'Marthandam'));
+    await stores.save(const Store(id: '', name: 'Nagercoil'));
+    await _pumpApp(
+      tester,
+      overrides: [storesRepositoryProvider.overrideWithValue(stores)],
+    );
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(AdminApp)),
+    );
+    expect(container.read(isStoreStaffProvider), isTrue);
+
+    // Business-wide pages are not in the menu; the store's own are.
+    for (final hidden in [
+      'coupons', 'offers', 'categories', 'storefront', 'content', 'notify', //
+      'requests', 'demand',
+    ]) {
+      expect(find.byKey(ValueKey('nav-/$hidden')), findsNothing,
+          reason: hidden);
+    }
+    for (final shown in ['orders', 'products', 'riders', 'areas', 'stores']) {
+      expect(find.byKey(ValueKey('nav-/$shown')), findsOneWidget,
+          reason: shown);
+    }
+
+    // Orders and riders are asked for by store, never all of them.
+    final repo = container.read(ordersRepositoryProvider);
+    final mine = await repo.watchOrders(storeId: 'store1').first;
+    expect(mine.every((o) => o.storeId == 'store1'), isTrue);
+    expect(
+      container.read(ordersProvider).requireValue.length,
+      mine.length,
+    );
+
+    // Products: stock for the own store, no add, edit or delete.
+    await tester.tap(find.byKey(const ValueKey('nav-/products')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('add-product-button')), findsNothing);
+    final first =
+        (await container.read(catalogRepositoryProvider).watchProducts().first)
+            .first;
+    expect(find.byKey(ValueKey('edit-${first.id}')), findsNothing);
+    expect(find.byKey(ValueKey('delete-${first.id}')), findsNothing);
+    expect(find.byKey(ValueKey('store-stock-${first.id}')), findsOneWidget);
   });
 
   testWidgets('sign out returns to the login page', (tester) async {

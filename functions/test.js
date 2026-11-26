@@ -320,3 +320,165 @@ assert.equal(paymentProblem(null, rzpOrder), 'Payment not found.');
 // Wallet money already used comes off what Razorpay must have collected.
 assert.equal(paymentProblem({ ...goodPay, amount: 16000 }, { ...rzpOrder, walletAppliedPaise: 2500 }), null);
 console.log('payment check tests passed');
+
+// The server works out what an order should cost and refuses less.
+const { checkOrder, couponDiscount, feesFor } = require('./pricecheck');
+const catalogue = {
+  apple: { pricePaise: 12900 },
+  milk: { pricePaise: 3200 },
+};
+const storeFees = { deliveryFeePaise: 3000, freeDeliveryThresholdPaise: 49900, handlingFeeEnabled: true, handlingFeePaise: 500, rainFeeEnabled: false, rainFeePaise: 2000 };
+const slab = [{ minOrderPaise: 29900, offerPricePaise: 900, productIds: ['milk'], active: true }];
+const ctx = { products: catalogue, settings: storeFees, coupon: null, offers: slab, now: 1000 };
+const honest = {
+  items: [{ productId: 'apple', quantity: 3, pricePaise: 12900 }],
+  totalPaise: 38700 + 3000 + 500,
+  deliveryType: 'instant',
+};
+assert.deepEqual(checkOrder(honest, ctx), { ok: true, expectedTotalPaise: 42200, reason: null });
+// Paying more than needed (a price went down) is not refused.
+assert.equal(checkOrder({ ...honest, totalPaise: 50000 }, ctx).ok, true);
+// A tampered app: item price of 1 paise, total to match.
+const cheat = { ...honest, items: [{ productId: 'apple', quantity: 3, pricePaise: 1 }], totalPaise: 3 };
+assert.equal(checkOrder(cheat, ctx).ok, false);
+assert.equal(checkOrder(cheat, ctx).expectedTotalPaise, 42200);
+// Fees left off.
+assert.equal(checkOrder({ ...honest, totalPaise: 38700 }, ctx).ok, false);
+// Negative or fractional quantity, unknown product, no items.
+assert.equal(checkOrder({ ...honest, items: [{ productId: 'apple', quantity: -2 }] }, ctx).ok, false);
+assert.equal(checkOrder({ ...honest, items: [{ productId: 'apple', quantity: 1.5 }] }, ctx).ok, false);
+assert.equal(checkOrder({ ...honest, items: [{ productId: 'ghost', quantity: 1 }] }, ctx).ok, false);
+assert.equal(checkOrder({ ...honest, items: [] }, ctx).ok, false);
+// The offer product at the offer price, once the items earn it.
+const withOffer = {
+  ...honest,
+  items: [...honest.items, { productId: 'milk', quantity: 1, pricePaise: 900, offer: true }],
+  totalPaise: 38700 + 900 + 3000 + 500,
+};
+assert.equal(checkOrder(withOffer, ctx).ok, true);
+// Items below the offer amount: the product counts at its usual price.
+const early = {
+  ...honest,
+  items: [{ productId: 'apple', quantity: 1 }, { productId: 'milk', quantity: 1, pricePaise: 900, offer: true }],
+  totalPaise: 12900 + 900 + 3000 + 500,
+};
+assert.equal(checkOrder(early, ctx).ok, false);
+assert.equal(checkOrder(early, ctx).expectedTotalPaise, 12900 + 3200 + 3000 + 500);
+// An offer price the admin never set, two units, or the offer switched off.
+assert.equal(checkOrder({ ...withOffer, items: [honest.items[0], { productId: 'milk', quantity: 1, pricePaise: 100, offer: true }], totalPaise: 38700 + 100 + 3500 }, ctx).ok, false);
+assert.equal(checkOrder({ ...withOffer, items: [honest.items[0], { productId: 'milk', quantity: 2, pricePaise: 900, offer: true }] }, ctx).ok, false);
+assert.equal(checkOrder(withOffer, { ...ctx, offers: [{ ...slab[0], active: false }] }).ok, false);
+// Coupons: 10% up to Rs 20, with a minimum and an expiry.
+const tenOff = { type: 'percent', value: 10, maxDiscountPaise: 2000, minOrderPaise: 20000, active: true, expiresAt: 5000 };
+assert.equal(couponDiscount(tenOff, 38700, 1000), 2000);
+assert.equal(couponDiscount(tenOff, 15000, 1000), 0);
+assert.equal(couponDiscount(tenOff, 38700, 6000), 0);
+assert.equal(couponDiscount({ ...tenOff, active: false }, 38700, 1000), 0);
+assert.equal(couponDiscount({ type: 'flat', value: 5000 }, 3000, 1000), 3000);
+const couponed = { ...honest, couponCode: 'TEN', totalPaise: 42200 - 2000 };
+assert.equal(checkOrder(couponed, { ...ctx, coupon: tenOff }).ok, true);
+// A made-up discount, or a coupon that does not exist.
+assert.equal(checkOrder({ ...couponed, totalPaise: 100 }, { ...ctx, coupon: tenOff }).ok, false);
+assert.equal(checkOrder(couponed, { ...ctx, coupon: null }).ok, false);
+// Outstation: the courier charge instead of the instant charges.
+assert.equal(feesFor(38700, true, { courierFeePaise: 6000, courierFreeAbovePaise: 99900 }), 6000);
+assert.equal(feesFor(120000, true, {}), 0);
+assert.equal(feesFor(60000, false, storeFees), 500);
+assert.equal(checkOrder({ ...honest, deliveryType: 'courier', totalPaise: 38700 + 6000 }, ctx).ok, true);
+// Wallet money can never be more than the order.
+assert.equal(checkOrder({ ...honest, walletAppliedPaise: 99999 }, ctx).ok, false);
+console.log('price check tests passed');
+
+// Daily sales totals kept by the server.
+const { dayOf, contribution, changes, totalsFor } = require('./stats');
+// 26 Nov 2026 00:10 in India is still 25 Nov in UTC.
+const at = Date.UTC(2026, 10, 25, 18, 40);
+assert.equal(dayOf(at), '2026-11-26');
+const codOrder = {
+  createdAt: at, storeId: 's1', status: 'placed', paymentMethod: 'cod',
+  paymentStatus: 'pending', totalPaise: 30000, deliveryFeePaise: 3000,
+  items: [{ name: 'Apple', quantity: 2, pricePaise: 12900 }, { name: 'Milk (Offer)', quantity: 1, pricePaise: 900 }],
+};
+const c1 = contribution(codOrder);
+assert.equal(c1.docId, '2026-11-26__s1');
+assert.deepEqual(c1.totals, { orders: 1, revenueOrders: 1, revenuePaise: 30000, cancelledOrders: 0, unpaidOrders: 0, codPaise: 30000, onlinePaise: 0, deliveryFeesPaise: 3000 });
+assert.deepEqual(c1.items, { Apple: { q: 2, p: 25800 }, 'Milk (Offer)': { q: 1, p: 900 } });
+// An online order counts only once paid.
+const unpaid = { ...codOrder, storeId: undefined, paymentMethod: 'online' };
+assert.equal(contribution(unpaid).docId, '2026-11-26__none');
+assert.equal(contribution(unpaid).totals.unpaidOrders, 1);
+assert.equal(contribution(unpaid).totals.revenuePaise, 0);
+const paidOnline = { ...unpaid, paymentStatus: 'paid' };
+assert.equal(contribution(paidOnline).totals.onlinePaise, 30000);
+assert.equal(contribution(null), null);
+assert.equal(contribution({ status: 'placed' }), null);
+// A new order adds itself.
+assert.deepEqual(changes(null, codOrder)['2026-11-26__s1'].totals, { orders: 1, revenueOrders: 1, revenuePaise: 30000, codPaise: 30000, deliveryFeesPaise: 3000 });
+// A change that does not touch the totals (a rider accepts) changes nothing.
+assert.deepEqual(changes(codOrder, { ...codOrder, status: 'accepted', riderName: 'Abdul' }), {});
+// Payment arriving moves the order from unpaid to revenue.
+assert.deepEqual(changes(unpaid, paidOnline)['2026-11-26__none'].totals, { revenueOrders: 1, revenuePaise: 30000, unpaidOrders: -1, onlinePaise: 30000, deliveryFeesPaise: 3000 });
+// Cancelling takes the revenue and the items back out.
+const cancelled = changes(codOrder, { ...codOrder, status: 'cancelled' })['2026-11-26__s1'];
+assert.deepEqual(cancelled.totals, { revenueOrders: -1, revenuePaise: -30000, cancelledOrders: 1, codPaise: -30000, deliveryFeesPaise: -3000 });
+assert.deepEqual(cancelled.items, { Apple: { q: -2, p: -25800 }, 'Milk (Offer)': { q: -1, p: -900 } });
+// Adding every order's changes one by one gives the same as a rebuild.
+const history = [[null, codOrder], [null, unpaid], [unpaid, paidOnline], [codOrder, { ...codOrder, status: 'cancelled' }]];
+const running = {};
+for (const [b, a] of history) {
+  for (const [id, ch] of Object.entries(changes(b, a))) {
+    const r = running[id] || (running[id] = {});
+    for (const [k, v] of Object.entries(ch.totals)) r[k] = (r[k] || 0) + v;
+  }
+}
+const rebuilt = totalsFor([{ ...codOrder, status: 'cancelled' }, paidOnline]);
+for (const id of Object.keys(rebuilt)) {
+  for (const [k, v] of Object.entries(rebuilt[id].totals)) assert.equal(running[id][k] || 0, v, id + ' ' + k);
+}
+console.log('daily totals tests passed');
+
+// Customer records kept by the server.
+const { customerChanges, customerTotalsFor } = require('./stats');
+const asha = { ...codOrder, address: { phone: '9876543210', name: 'Asha', pincode: '629001' } };
+const placedByAsha = customerChanges(null, asha);
+assert.deepEqual(Object.keys(placedByAsha).sort(), ['2026-11__s1__9876543210', 'all__s1__9876543210']);
+assert.deepEqual(placedByAsha['all__s1__9876543210'], {
+  period: 'all', storeId: 's1', phone: '9876543210', orders: 1, spentPaise: 30000,
+  latest: { name: 'Asha', pincode: '629001', lastOrderAt: at },
+});
+// Cancelling keeps the order in her count and takes the money back out.
+const ashaCancels = customerChanges(asha, { ...asha, status: 'cancelled' });
+assert.deepEqual(ashaCancels['2026-11__s1__9876543210'], { period: '2026-11', storeId: 's1', phone: '9876543210', orders: 0, spentPaise: -30000, latest: null });
+// A rider accepting changes nothing; an order with no phone has no record.
+assert.deepEqual(customerChanges(asha, { ...asha, status: 'accepted' }), {});
+assert.deepEqual(customerChanges(null, codOrder), {});
+// A rebuild keeps the newest order's name and pincode.
+const later = { ...asha, createdAt: at + 86400000, address: { phone: '9876543210', name: 'Asha R', pincode: '629002' } };
+const rebuiltCustomers = customerTotalsFor([later, asha]);
+assert.equal(rebuiltCustomers['all__s1__9876543210'].orders, 2);
+assert.equal(rebuiltCustomers['all__s1__9876543210'].spentPaise, 60000);
+assert.equal(rebuiltCustomers['all__s1__9876543210'].latest.name, 'Asha R');
+console.log('customer totals tests passed');
+
+// Invite rewards paid by the server.
+const { milestonesReached, rewardFor, needsRewardCheck } = require('./rewards');
+assert.deepEqual([0, 1, 2, 3, 5, 6, 10, 15, 40].map(milestonesReached), [0, 1, 1, 2, 2, 3, 4, 5, 5]);
+// The first friend earns Rs 25.
+assert.deepEqual(rewardFor({}), { invites: 1, due: 1, balancePaise: 2500, rewardedMilestones: 1, note: 'Invite reward: 1 friend has ordered' });
+// The second friend counts but earns nothing; the third earns the next.
+const afterOne = { successfulInvites: 1, rewardedMilestones: 1, balancePaise: 2500 };
+assert.equal(rewardFor(afterOne).due, 0);
+assert.equal(rewardFor(afterOne).balancePaise, 2500);
+const afterTwo = { successfulInvites: 2, rewardedMilestones: 1, balancePaise: 1000 };
+assert.deepEqual(rewardFor(afterTwo), { invites: 3, due: 1, balancePaise: 3500, rewardedMilestones: 2, note: 'Invite reward: 3 friends have ordered' });
+// Nothing more after the fifth reward (15 friends).
+assert.equal(rewardFor({ successfulInvites: 20, rewardedMilestones: 5, balancePaise: 0 }).due, 0);
+// A reward that was missed earlier is made up.
+assert.equal(rewardFor({ successfulInvites: 5, rewardedMilestones: 1, balancePaise: 0 }).due, 2);
+// Only a delivered order that has not been checked is looked at.
+assert.equal(needsRewardCheck({ status: 'delivered', userId: 'u1' }), true);
+assert.equal(needsRewardCheck({ status: 'delivered', userId: 'u1', referralChecked: true }), false);
+assert.equal(needsRewardCheck({ status: 'placed', userId: 'u1' }), false);
+assert.equal(needsRewardCheck({ status: 'delivered', userId: '' }), false);
+assert.equal(needsRewardCheck(null), false);
+console.log('invite reward tests passed');

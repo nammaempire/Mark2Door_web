@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../models/order.dart';
+import '../reports/day_stats.dart';
 
 @immutable
 class RevenuePoint {
@@ -79,11 +80,26 @@ class RevenueStats {
     'Dec',
   ];
 
-  factory RevenueStats.from(List<Order> orders, DateTime now) {
+  /// From a list of orders: used by tests and by sample data. The live
+  /// console uses [RevenueStats.fromDays], fed by the server's totals.
+  factory RevenueStats.from(List<Order> orders, DateTime now) =>
+      RevenueStats.fromDays(
+        DayStats.fromOrders(orders),
+        now,
+        activeOrders: orders.where((o) => o.isActive).length,
+      );
+
+  /// From the day totals the server keeps, which cover every order ever
+  /// placed. [activeOrders] comes from the live order list.
+  factory RevenueStats.fromDays(
+    List<DayStats> days,
+    DateTime now, {
+    required int activeOrders,
+  }) {
     final today = DateTime(now.year, now.month, now.day);
     // Calendar arithmetic (not Duration) so DST shifts cannot move a day.
-    DateTime dayOffset(int days) =>
-        DateTime(today.year, today.month, today.day + days);
+    DateTime dayOffset(int n) =>
+        DateTime(today.year, today.month, today.day + n);
     DateTime monthOffset(int months) =>
         DateTime(today.year, today.month + months);
 
@@ -95,37 +111,32 @@ class RevenueStats {
     final productPaise = <String, int>{};
 
     var ordersToday = 0;
-    var active = 0;
+    final active = activeOrders;
     var monthOrders = 0;
 
-    for (final order in orders) {
-      final at = order.createdAt;
-      final day = DateTime(at.year, at.month, at.day);
-      final month = DateTime(at.year, at.month);
+    for (final d in days) {
+      final month = DateTime(d.day.year, d.day.month);
+      if (d.day == today) ordersToday += d.orders;
 
-      if (day == today) ordersToday++;
-      if (order.isActive) active++;
-      if (!order.countsAsRevenue) continue;
-
-      final dayIndex = dayStarts.indexOf(day);
-      if (dayIndex != -1) dayTotals[dayIndex] += order.totalPaise;
+      final dayIndex = dayStarts.indexOf(d.day);
+      if (dayIndex != -1) dayTotals[dayIndex] += d.revenuePaise;
       final monthIndex = monthStarts.indexOf(month);
-      if (monthIndex != -1) monthTotals[monthIndex] += order.totalPaise;
+      if (monthIndex != -1) monthTotals[monthIndex] += d.revenuePaise;
 
       if (month == monthStarts.last) {
-        monthOrders++;
-        for (final item in order.items) {
+        monthOrders += d.revenueOrders;
+        d.items.forEach((name, sold) {
           productQty.update(
-            item.name,
-            (q) => q + item.quantity,
-            ifAbsent: () => item.quantity,
+            name,
+            (q) => q + sold.quantity,
+            ifAbsent: () => sold.quantity,
           );
           productPaise.update(
-            item.name,
-            (p) => p + item.lineTotalPaise,
-            ifAbsent: () => item.lineTotalPaise,
+            name,
+            (p) => p + sold.paise,
+            ifAbsent: () => sold.paise,
           );
-        }
+        });
       }
     }
 

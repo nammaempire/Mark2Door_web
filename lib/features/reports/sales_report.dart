@@ -6,6 +6,7 @@ import 'package:pdf/widgets.dart' as pw;
 
 import '../../core/formatters.dart';
 import '../../models/order.dart';
+import 'day_stats.dart';
 
 @immutable
 class ReportDay {
@@ -38,6 +39,7 @@ class SalesReport {
     required this.deliveryFeesPaise,
     required this.days,
     required this.orders,
+    this.ordersCapped = false,
   });
 
   final DateTime from;
@@ -59,12 +61,43 @@ class SalesReport {
   /// Every order placed in the range, newest first.
   final List<Order> orders;
 
+  /// True when the period has more orders than [orders] holds. The
+  /// totals above still count every one.
+  final bool ordersCapped;
+
   int get avgOrderPaise =>
       revenueOrders == 0 ? 0 : revenuePaise ~/ revenueOrders;
 
   static DateTime _day(DateTime d) => DateTime(d.year, d.month, d.day);
 
+  /// From a list of orders: used by tests and by sample data.
   factory SalesReport.from(List<Order> all, DateTime from, DateTime to) {
+    final start = _day(from);
+    final end = _day(to);
+    final inRange = [
+      for (final o in all)
+        if (!_day(o.createdAt).isBefore(start) &&
+            !_day(o.createdAt).isAfter(end))
+          o,
+    ];
+    return SalesReport.fromDays(
+      DayStats.fromOrders(inRange),
+      from,
+      to,
+      orders: inRange,
+    );
+  }
+
+  /// From the day totals the server keeps, which cover every order in the
+  /// period however many there are. [orders] is the period's order list
+  /// for the table and the export; [ordersCapped] says it was cut short.
+  factory SalesReport.fromDays(
+    List<DayStats> stats,
+    DateTime from,
+    DateTime to, {
+    required List<Order> orders,
+    bool ordersCapped = false,
+  }) {
     final start = _day(from);
     final end = _day(to);
     final totals = <DateTime, (int orders, int paise)>{};
@@ -74,35 +107,22 @@ class SalesReport {
       totals[d] = (0, 0);
     }
 
-    final inRange = <Order>[];
     var revenue = 0, count = 0, cancelled = 0, unpaid = 0;
     var cod = 0, online = 0, fees = 0;
-
-    for (final order in all) {
-      final day = _day(order.createdAt);
-      if (!totals.containsKey(day)) continue;
-      inRange.add(order);
-
-      if (order.status == OrderStatus.cancelled) {
-        cancelled++;
-        continue;
-      }
-      if (!order.countsAsRevenue) {
-        unpaid++;
-        continue;
-      }
-      revenue += order.totalPaise;
-      count++;
-      fees += order.deliveryFeePaise;
-      if (order.paymentMethod == PaymentMethod.cod) {
-        cod += order.totalPaise;
-      } else {
-        online += order.totalPaise;
-      }
-      final t = totals[day]!;
-      totals[day] = (t.$1 + 1, t.$2 + order.totalPaise);
+    for (final s in stats) {
+      final t = totals[s.day];
+      if (t == null) continue;
+      revenue += s.revenuePaise;
+      count += s.revenueOrders;
+      cancelled += s.cancelledOrders;
+      unpaid += s.unpaidOrders;
+      cod += s.codPaise;
+      online += s.onlinePaise;
+      fees += s.deliveryFeesPaise;
+      totals[s.day] = (t.$1 + s.revenueOrders, t.$2 + s.revenuePaise);
     }
-    inRange.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final inRange = [...orders]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     return SalesReport(
       from: start,
@@ -119,6 +139,7 @@ class SalesReport {
           ReportDay(date: e.key, orders: e.value.$1, revenuePaise: e.value.$2),
       ],
       orders: inRange,
+      ordersCapped: ordersCapped,
     );
   }
 

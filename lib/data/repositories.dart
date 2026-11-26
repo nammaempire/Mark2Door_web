@@ -55,7 +55,18 @@ abstract interface class CatalogAdminRepository {
 
 abstract interface class OrdersAdminRepository {
   /// All orders, newest first.
-  Stream<List<Order>> watchOrders();
+  /// Newest first. With [storeId], only that store's orders: a store
+  /// login is not allowed to read any others.
+  Stream<List<Order>> watchOrders({String? storeId});
+
+  /// The orders placed from [from] to [to] (whole days), newest first,
+  /// at most [limit] of them. Read once, for a report's order list.
+  Future<List<Order>> fetchOrdersBetween(
+    DateTime from,
+    DateTime to, {
+    String? storeId,
+    int limit = 3000,
+  });
 
   Future<void> updateStatus(String orderId, OrderStatus status);
 
@@ -77,12 +88,6 @@ abstract interface class OrdersAdminRepository {
 
   /// Records that the money for a cancelled, paid order was returned.
   Future<void> markRefunded(String orderId);
-
-  /// Does the wallet work an order is waiting for (see
-  /// `Order.needsSettlement`): pays the inviter's reward when an invited
-  /// customer's first order is delivered, and returns wallet money spent
-  /// on an order that was cancelled. Safe to call more than once.
-  Future<void> settle(Order order);
 }
 
 /// Help questions and legal pages shown in the customer app.
@@ -139,7 +144,8 @@ abstract interface class StorefrontAdminRepository {
 }
 
 abstract interface class RidersAdminRepository {
-  Stream<List<Rider>> watchRiders();
+  /// By name. With [storeId], only that store's delivery partners.
+  Stream<List<Rider>> watchRiders({String? storeId});
 
   /// Creates when `rider.id` is empty, otherwise updates.
   Future<void> saveRider(Rider rider);

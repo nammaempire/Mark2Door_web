@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/download.dart';
 import '../../core/formatters.dart';
 import '../../core/providers.dart';
+import '../stores/stores.dart';
 import '../../core/theme.dart';
 import '../../core/widgets.dart';
 import 'sales_report.dart';
@@ -116,16 +117,51 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     }
   }
 
+  bool _rebuilding = false;
+
+  Future<void> _rebuild() async {
+    final ok = await confirm(
+      context,
+      title: 'Recount all totals?',
+      message: 'The server adds up every order again. Use this once after '
+          'the update, or if a figure looks wrong. It can take a minute.',
+      action: 'Recount',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _rebuilding = true);
+    try {
+      final orders = await ref.read(statsRepositoryProvider).rebuild();
+      ref.invalidate(salesReportProvider);
+      if (mounted) showMessage(context, 'Totals recounted from $orders orders');
+    } catch (_) {
+      if (mounted) {
+        showMessage(context, "Couldn't recount the totals. Try again.");
+      }
+    } finally {
+      if (mounted) setState(() => _rebuilding = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final report = ref.watch(ordersProvider).whenData(
-          (orders) => SalesReport.from(orders, _range.start, _range.end),
-        );
+    final report = ref.watch(
+      salesReportProvider((from: _range.start, to: _range.end)),
+    );
 
     return AdminPage(
       title: 'Reports',
       subtitle: 'Sales for any period, with export for Excel or PDF.',
       actions: [
+        // The totals are kept by the server as orders come in. This works
+        // them out again from every order: needed once after the feature
+        // is first switched on, and if a figure ever looks wrong.
+        if (!ref.watch(isStoreStaffProvider))
+          TextButton.icon(
+            key: const ValueKey('rebuild-totals-button'),
+            onPressed: _rebuilding ? null : _rebuild,
+            icon: const Icon(Icons.restart_alt_rounded),
+            label: Text(_rebuilding ? 'Recounting…' : 'Recount totals'),
+          ),
         if (report.valueOrNull case final r?) ...[
           OutlinedButton.icon(
             key: const ValueKey('export-csv-button'),
@@ -228,6 +264,16 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                   ),
                 ),
               ),
+              if (r.ordersCapped) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'The totals count every order in this period. The export '
+                  'lists the newest $reportOrderLimit orders; choose a '
+                  'shorter period to list them all.',
+                  key: const ValueKey('report-capped'),
+                  style: const TextStyle(color: AppColors.textMuted),
+                ),
+              ],
               if (r.unpaidOrders > 0) ...[
                 const SizedBox(height: 12),
                 Text(

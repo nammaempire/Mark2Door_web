@@ -1,0 +1,315 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isAdmin() {
+      return signedIn()
+          && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+    // Riders are recognised by the phone number they signed in with. The
+    // admin stores rider phones as 10 digits, on `riders` and on the order.
+    function isRiderWithPhone(phone10) {
+      return signedIn()
+          && phone10 is string
+          && request.auth.token.get('phone_number', '') == '+91' + phone10;
+    }
+
+    // Admin list. Created by hand in the Firebase console only.
+    match /admins/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if false;
+    }
+
+    // Catalogue, storefront, help and legal text: any signed-in user reads,
+    // only admins write.
+    match /products/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+
+      // Customer reviews: one per customer per product, written only by
+      // someone with a delivered order of their own. The store can
+      // remove a review.
+      match /reviews/{uid} {
+        allow read: if signedIn();
+        allow create, update: if isOwner(uid)
+            && request.resource.data.rating is int
+            && request.resource.data.rating >= 1
+            && request.resource.data.rating <= 5
+            && request.resource.data.text is string
+            && request.resource.data.text.size() <= 300
+            && request.resource.data.name is string
+            && request.resource.data.name.size() <= 40
+            && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.userId == request.auth.uid
+            && get(/databases/$(database)/documents/orders/$(request.resource.data.orderId)).data.status == 'delivered';
+        allow delete: if isAdmin();
+      }
+    }
+
+    // The business's shops. Apps read them; only admins change them.
+    match /stores/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Products a customer could not find and asked the store to get.
+    // A signed-in customer adds their own; only admins read, mark and
+    // delete them.
+    match /product_requests/{id} {
+      allow create: if signedIn()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.status == 'new'
+        && request.resource.data.product is string
+        && request.resource.data.product.size() <= 120
+        && request.resource.data.quantity is string
+        && request.resource.data.quantity.size() <= 40;
+      allow read, update, delete: if isAdmin();
+    }
+
+    // Price slab offers: "order above 299 and pick one product for 9".
+    // Apps read them; only admins change them.
+    match /slab_offers/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // Notifications the store sends to every customer. Only admins can
+    // write them; a server function does the sending.
+    match /announcements/{id} {
+      allow read, write: if isAdmin();
+    }
+    match /categories/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /service_areas/{pincode} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /banners/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /settings/{doc} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    match /faqs/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+    // Terms and the privacy policy are public: the login page links to
+    // them before anyone has signed in.
+    match /pages/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Discount codes. Customers look a code up at checkout; admins manage
+    // them. `uses/{uid}` records that a customer has used a once-only code:
+    // it can be created once and never changed, so the second order with
+    // the same code is refused. The server removes it if that order is
+    // cancelled.
+    match /coupons/{code} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+
+      match /uses/{uid} {
+        allow read: if isAdmin() || isOwner(uid);
+        allow create: if isOwner(uid);
+        allow update, delete: if false;
+      }
+    }
+
+    // Documents a delivery partner submits after their first login: date
+    // of birth, address, driving licence and Aadhaar. Keyed by their
+    // 10-digit phone. Only that rider and the admins can read them.
+    match /rider_documents/{phone} {
+      allow read: if isAdmin() || isRiderWithPhone(phone);
+      allow create, update: if isRiderWithPhone(phone)
+          && request.resource.data.address is string
+          && request.resource.data.address.size() <= 300
+          && request.resource.data.licenceNumber is string
+          && request.resource.data.licenceNumber.size() <= 30
+          && request.resource.data.aadhaarNumber is string
+          && request.resource.data.aadhaarNumber.size() == 12;
+      allow delete: if isAdmin();
+    }
+
+    // Riders: admins manage them; a rider can read their own record.
+    match /riders/{id} {
+      allow read: if isAdmin() || isRiderWithPhone(resource.data.phone);
+      allow write: if isAdmin();
+      // A rider deleting their own account removes their own record.
+      allow delete: if isRiderWithPhone(resource.data.phone);
+      // A rider can switch themselves on or off duty, and nothing else.
+      allow update: if isRiderWithPhone(resource.data.phone)
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['active']);
+    }
+    // The phone to notify for each rider, keyed by their 10-digit number.
+    // Written by the delivery app; read only by the server function.
+    match /rider_tokens/{phone} {
+      allow read, write: if isRiderWithPhone(phone);
+    }
+    // What customers wanted and could not get: a pincode outside the
+    // delivery area, or a search that found nothing to buy. The customer
+    // app adds to a running count; only admins read or clear the lists.
+    match /pincode_requests/{pincode} {
+      allow read, delete: if isAdmin();
+      allow create, update: if signedIn()
+          && pincode.matches('^[1-9][0-9]{5}$');
+    }
+    match /search_misses/{term} {
+      allow read, delete: if isAdmin();
+      allow create, update: if signedIn() && term.size() <= 60;
+    }
+    // The phone to notify for each customer about their orders. Written by
+    // the customer app; read only by the server function.
+    match /customer_tokens/{uid} {
+      allow read, write: if isOwner(uid);
+    }
+
+    // Orders.
+    // - A customer creates and reads only their own.
+    // - The rider an order is assigned to reads it and moves it along.
+    // - Admins manage everything.
+    match /orders/{id} {
+      // An order may use wallet money only if the same write takes exactly
+      // that amount out of the customer's wallet.
+      function walletOk() {
+        let applied = request.resource.data.get('walletAppliedPaise', 0);
+        return applied == 0
+            || (applied > 0
+                && applied <= request.resource.data.totalPaise
+                && getAfter(/databases/$(database)/documents/wallets/$(request.auth.uid)).data.balancePaise
+                    == get(/databases/$(database)/documents/wallets/$(request.auth.uid)).data.balancePaise - applied);
+      }
+
+      allow read: if isAdmin()
+          || (signedIn() && resource.data.userId == request.auth.uid)
+          || isRiderWithPhone(resource.data.get('riderPhone', null));
+      allow create: if signedIn()
+          && request.resource.data.userId == request.auth.uid
+          && request.resource.data.status == 'placed'
+          && request.resource.data.paymentStatus == 'pending'
+          // Outstation (courier) orders are paid online, never in cash.
+          && (request.resource.data.get('deliveryType', 'instant') != 'courier'
+              || request.resource.data.paymentMethod == 'online')
+          && walletOk();
+      // Customer branch: the app may record that a payment failed or is
+      // still pending, and may cancel. It can never mark an order paid:
+      // only the server does that, after checking Razorpay's signature.
+      // The one exception is an order the wallet paid for in full, where
+      // no money goes through Razorpay.
+      allow update: if isAdmin()
+          || (signedIn()
+              && resource.data.userId == request.auth.uid
+              && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['paymentStatus', 'status', 'paymentId',
+                            'paymentPendingAt', 'cancelledBy', 'cancelledAt'])
+              // The only status change a customer can make is to cancel,
+              // and only until the delivery partner has picked the order up.
+              && (request.resource.data.status == resource.data.status
+                  || (request.resource.data.status == 'cancelled'
+                      && resource.data.status in ['placed', 'accepted']))
+              && (request.resource.data.paymentStatus
+                      == resource.data.paymentStatus
+                  || request.resource.data.paymentStatus == 'failed'
+                  || (request.resource.data.paymentStatus == 'paid'
+                      && resource.data.totalPaise
+                          == resource.data.get('walletAppliedPaise', 0))))
+          // The customer rates the delivery once, after it is delivered.
+          || (signedIn()
+              && resource.data.userId == request.auth.uid
+              && resource.data.status == 'delivered'
+              && !('riderRating' in resource.data)
+              && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['riderRating', 'riderRatedAt'])
+              && request.resource.data.riderRating is int
+              && request.resource.data.riderRating >= 1
+              && request.resource.data.riderRating <= 5)
+          || (isRiderWithPhone(resource.data.get('riderPhone', null))
+              && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['status', 'riderId', 'riderName', 'riderPhone',
+                            'deliveredAt', 'paymentStatus', 'assignedAt',
+                            'rejectReason', 'rejectedByName', 'rejectedAt',
+                            'acceptedAt', 'deliveryPhotoUrl',
+                            // A cash order paid at the door by QR scan,
+                            // with the rider's proof photo.
+                            'codPaidBy', 'paymentProofUrl', 'codPaidAt'])
+              // Marking an order delivered needs the delivery photo.
+              && (request.resource.data.status != 'delivered'
+                  || resource.data.status == 'delivered'
+                  || request.resource.data.get('deliveryPhotoUrl', '') != ''));
+      allow delete: if false;
+    }
+
+    // Invite and earn.
+    match /users/{uid} {
+      allow read: if isAdmin() || isOwner(uid);
+      allow create, update: if isOwner(uid);
+      // Deleted when the customer deletes their own account.
+      allow delete: if isOwner(uid);
+    }
+    // Phone numbers whose customer account was deleted, so a deleted number
+    // cannot sign up again and be counted as a newly invited friend.
+    match /deleted_accounts/{phone} {
+      allow read: if isAdmin();
+      allow create, update: if signedIn()
+          && request.auth.token.get('phone_number', '') == phone;
+      allow delete: if false;
+    }
+    // One document per invite code, so a code can be looked up. A code is
+    // claimed by creating it and can never be changed afterwards.
+    match /referral_codes/{code} {
+      allow get: if signedIn();
+      allow list: if isAdmin();
+      allow create: if signedIn()
+          && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+    // Who invited whom; the document id is the invited customer's uid, so
+    // each customer can be invited only once. Only admins change its status.
+    match /referrals/{inviteeUid} {
+      allow get: if isAdmin() || isOwner(inviteeUid);
+      allow list: if isAdmin()
+          || (signedIn() && resource.data.referrerUid == request.auth.uid);
+      allow create: if isOwner(inviteeUid)
+          && request.resource.data.inviteeUid == request.auth.uid
+          && request.resource.data.referrerUid != request.auth.uid
+          && request.resource.data.status == 'joined'
+          && !exists(/databases/$(database)/documents/deleted_accounts/$(request.auth.token.phone_number));
+      allow update, delete: if isAdmin();
+    }
+    // m2d wallet. Money goes in only through the admin console (rewards
+    // and refunds). The customer's app can only take money out, which it
+    // does when paying for an order.
+    match /wallets/{uid} {
+      allow read: if isAdmin() || isOwner(uid);
+      allow create: if isAdmin();
+      // The customer can delete their own wallet with their account.
+      allow delete: if isAdmin() || isOwner(uid);
+      allow update: if isAdmin()
+          || (isOwner(uid)
+              && request.resource.data.diff(resource.data).affectedKeys()
+                  .hasOnly(['balancePaise', 'updatedAt'])
+              && request.resource.data.balancePaise >= 0
+              && request.resource.data.balancePaise < resource.data.balancePaise);
+
+      match /transactions/{txn} {
+        allow read: if isAdmin() || isOwner(uid);
+        allow create: if isAdmin()
+            || (isOwner(uid)
+                && request.resource.data.amountPaise < 0
+                && request.resource.data.type == 'order_payment');
+        allow update, delete: if false;
+      }
+    }
+  }
+}

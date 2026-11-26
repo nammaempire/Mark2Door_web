@@ -33,17 +33,15 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
     final month = _month;
     // With a month chosen, only that month's orders are counted, so the
     // list is who ordered that month, with their orders and spend in it.
-    final customers = ref.watch(ordersProvider).whenData(
-          (orders) => CustomerSummary.from(
-            month == null
-                ? orders
-                : orders
-                    .where((o) =>
-                        o.createdAt.year == month.year &&
-                        o.createdAt.month == month.month)
-                    .toList(),
-          ),
-        );
+    final customers = ref.watch(topCustomersProvider(month));
+    // A full mobile number finds a customer who is not among the biggest
+    // spenders loaded on screen.
+    final digits = _query.replaceAll(RegExp(r'[^0-9]'), '');
+    final lookedUp = digits.length == 10 && digits == _query
+        ? ref
+            .watch(customerByPhoneProvider((phone: digits, month: month)))
+            .valueOrNull
+        : null;
     final now = DateTime.now();
     final months = [
       for (var i = 0; i < 12; i++) DateTime(now.year, now.month - i),
@@ -124,6 +122,7 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
                     c.name.toLowerCase().contains(_query) ||
                     c.phone.contains(_query))
                 .toList();
+            if (list.isEmpty && lookedUp != null) list.add(lookedUp);
             if (list.isEmpty) {
               return Panel(
                 child: Padding(
@@ -168,7 +167,8 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
                             key: ValueKey('customer-${c.phone}'),
                             onSelectChanged: (_) => showDialog<void>(
                               context: context,
-                              builder: (_) => _CustomerDialog(customer: c),
+                              builder: (_) =>
+                                  _CustomerDialog(customer: c, month: month),
                             ),
                             cells: [
                               DataCell(Text(
@@ -179,7 +179,7 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
                               )),
                               DataCell(Text('+91 ${c.phone}')),
                               DataCell(Text(c.pincode)),
-                              DataCell(Text('${c.orders.length}')),
+                              DataCell(Text('${c.orderCount}')),
                               DataCell(Text(
                                 formatPaise(c.spentPaise),
                                 style: const TextStyle(
@@ -195,7 +195,10 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  '${list.length} of ${all.length} customers',
+                  '${list.length} of ${all.length} customers'
+                  '${all.length >= customerListLimit ? '. These are the '
+                      '$customerListLimit biggest spenders; type a full '
+                      'mobile number to find anyone else.' : ''}',
                   style: const TextStyle(color: AppColors.textMuted),
                 ),
               ],
@@ -207,13 +210,20 @@ class _CustomersScreenState extends ConsumerState<CustomersScreen> {
   }
 }
 
-class _CustomerDialog extends StatelessWidget {
-  const _CustomerDialog({required this.customer});
+class _CustomerDialog extends ConsumerWidget {
+  const _CustomerDialog({required this.customer, required this.month});
 
   final CustomerSummary customer;
 
+  /// The month on screen; null for all time.
+  final DateTime? month;
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // Their orders are read when the row is opened.
+    final history = ref.watch(
+      customerOrdersProvider((phone: customer.phone, month: month)),
+    );
     return AlertDialog(
       title: Text(customer.name),
       content: SizedBox(
@@ -223,18 +233,27 @@ class _CustomerDialog extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              '+91 ${customer.phone} · ${customer.orders.length} orders · '
+              '+91 ${customer.phone} · ${customer.orderCount} orders · '
               '${formatPaise(customer.spentPaise)} spent',
               style: const TextStyle(color: AppColors.textMuted),
             ),
             const SizedBox(height: 16),
             Flexible(
-              child: ListView.separated(
+              child: history.when(
+                loading: () => const Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+                error: (_, __) => const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text("Couldn't load their orders. Try again."),
+                ),
+                data: (orders) => ListView.separated(
                 shrinkWrap: true,
-                itemCount: customer.orders.length,
+                itemCount: orders.length,
                 separatorBuilder: (_, __) => const Divider(),
                 itemBuilder: (context, i) {
-                  final o = customer.orders[i];
+                  final o = orders[i];
                   return Padding(
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     child: Row(
@@ -272,6 +291,7 @@ class _CustomerDialog extends StatelessWidget {
                     ),
                   );
                 },
+              ),
               ),
             ),
           ],

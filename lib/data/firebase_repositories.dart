@@ -9,6 +9,7 @@ import '../models/order.dart';
 import '../models/product.dart';
 import '../models/storefront.dart';
 import 'image_upload.dart';
+import '../core/photo_shrink.dart';
 import 'repositories.dart';
 
 /// Email/password sign-in, restricted to accounts listed in `admins/{uid}`.
@@ -134,11 +135,35 @@ class FirestoreOrdersAdminRepository implements OrdersAdminRepository {
   final FirebaseFirestore _db;
 
   @override
-  Stream<List<Order>> watchOrders() {
+  Future<List<Order>> fetchOrdersBetween(
+    DateTime from,
+    DateTime to, {
+    String? storeId,
+    int limit = 3000,
+  }) async {
+    final start = DateTime(from.year, from.month, from.day);
+    final end = DateTime(to.year, to.month, to.day + 1);
+    Query<Map<String, dynamic>> orders = _db.collection('orders');
+    if (storeId != null) orders = orders.where('storeId', isEqualTo: storeId);
+    final snap = await orders
+        .where('createdAt',
+            isGreaterThanOrEqualTo: start.millisecondsSinceEpoch)
+        .where('createdAt', isLessThan: end.millisecondsSinceEpoch)
+        .orderBy('createdAt', descending: true)
+        .limit(limit)
+        .get();
+    return [for (final d in snap.docs) Order.fromMap(d.id, d.data())];
+  }
+
+  @override
+  Stream<List<Order>> watchOrders({String? storeId}) {
     // Bounded so the dashboard stays fast as history grows. For exact
     // long-range reporting, aggregate daily totals in a Cloud Function.
-    return _db
-        .collection('orders')
+    Query<Map<String, dynamic>> orders = _db.collection('orders');
+    // A store login may read only its own store's orders, and the rules
+    // refuse a query that could return any others.
+    if (storeId != null) orders = orders.where('storeId', isEqualTo: storeId);
+    return orders
         .orderBy('createdAt', descending: true)
         .limit(2000)
         .snapshots()
@@ -205,100 +230,6 @@ class FirestoreOrdersAdminRepository implements OrdersAdminRepository {
       .collection('orders')
       .doc(orderId)
       .update({'paymentStatus': PaymentStatus.refunded.name});
-
-  @override
-  Future<void> settle(Order order) async {
-    if (!order.needsSettlement || order.userId.isEmpty) return;
-    final orderRef = _db.collection('orders').doc(order.id);
-
-    // Only a customer's first delivered order can earn their inviter a
-    // reward. Looked up before the transaction, which cannot run queries.
-    var firstDelivered = true;
-    if (order.status == OrderStatus.delivered) {
-      final delivered = await _db
-          .collection('orders')
-          .where('userId', isEqualTo: order.userId)
-          .where('status', isEqualTo: OrderStatus.delivered.name)
-          .limit(2)
-          .get();
-      firstDelivered = delivered.docs.every((d) => d.id == order.id);
-    }
-
-    await _db.runTransaction((tx) async {
-      // Re-read inside the transaction so two open consoles cannot both
-      // pay the same reward or refund.
-      final fresh =
-          Order.fromMap(order.id, (await tx.get(orderRef)).data() ?? {});
-      if (!fresh.needsSettlement) return;
-      final now = DateTime.now().millisecondsSinceEpoch;
-
-      if (fresh.status == OrderStatus.delivered) {
-        final referralRef = _db.collection('referrals').doc(fresh.userId);
-        final referral = (await tx.get(referralRef)).data();
-        if (referral != null && referral['status'] == 'joined') {
-          final referrer = referral['referrerUid'] as String? ?? '';
-          if (!firstDelivered || referrer.isEmpty) {
-            tx.update(
-                referralRef, {'status': 'ineligible', 'completedAt': now});
-          } else {
-            final walletRef = _db.collection('wallets').doc(referrer);
-            final wallet = (await tx.get(walletRef)).data() ?? const {};
-            final invites =
-                ((wallet['successfulInvites'] as num?)?.toInt() ?? 0) + 1;
-            final rewarded =
-                (wallet['rewardedMilestones'] as num?)?.toInt() ?? 0;
-            final reached = ReferralRules.milestonesReached(invites);
-            final due = reached > rewarded ? reached - rewarded : 0;
-            tx.set(
-              walletRef,
-              {
-                'balancePaise':
-                    ((wallet['balancePaise'] as num?)?.toInt() ?? 0) +
-                        due * ReferralRules.rewardPaise,
-                'successfulInvites': invites,
-                'rewardedMilestones': rewarded + due,
-                'updatedAt': now,
-              },
-              SetOptions(merge: true),
-            );
-            for (var i = 0; i < due; i++) {
-              tx.set(walletRef.collection('transactions').doc(), {
-                'amountPaise': ReferralRules.rewardPaise,
-                'type': 'referral_reward',
-                'note': 'Invite reward: $invites '
-                    '${invites == 1 ? 'friend has' : 'friends have'} ordered',
-                'orderId': fresh.id,
-                'createdAt': now + i,
-              });
-            }
-            tx.update(referralRef, {'status': 'ordered', 'completedAt': now});
-          }
-        }
-        tx.update(orderRef, {'referralChecked': true});
-      } else {
-        // Cancelled with wallet money on it: give the money back.
-        final walletRef = _db.collection('wallets').doc(fresh.userId);
-        final wallet = (await tx.get(walletRef)).data() ?? const {};
-        tx.set(
-          walletRef,
-          {
-            'balancePaise': ((wallet['balancePaise'] as num?)?.toInt() ?? 0) +
-                fresh.walletAppliedPaise,
-            'updatedAt': now,
-          },
-          SetOptions(merge: true),
-        );
-        tx.set(walletRef.collection('transactions').doc(), {
-          'amountPaise': fresh.walletAppliedPaise,
-          'type': 'order_refund',
-          'note': 'Returned from cancelled order ${fresh.displayId}',
-          'orderId': fresh.id,
-          'createdAt': now,
-        });
-        tx.update(orderRef, {'walletRefunded': true});
-      }
-    });
-  }
 }
 
 class FirestoreServiceAreaAdminRepository
@@ -400,11 +331,22 @@ class FirestoreRidersAdminRepository implements RidersAdminRepository {
       _db.collection('riders');
 
   @override
-  Stream<List<Rider>> watchRiders() => _riders.orderBy('name').snapshots().map(
-        (snap) => snap.docs
-            .map((d) => Rider.fromMap(d.id, d.data()))
-            .toList(growable: false),
-      );
+  Stream<List<Rider>> watchRiders({String? storeId}) => storeId == null
+      ? _riders.orderBy('name').snapshots().map(
+            (snap) => snap.docs
+                .map((d) => Rider.fromMap(d.id, d.data()))
+                .toList(growable: false),
+          )
+      // Sorted here, so a store login needs no extra database index.
+      : _riders.where('storeId', isEqualTo: storeId).snapshots().map(
+            (snap) => snap.docs
+                .map((d) => Rider.fromMap(d.id, d.data()))
+                .toList(growable: false)
+              ..sort(
+                (a, b) =>
+                    a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+              ),
+          );
 
   @override
   Future<void> saveRider(Rider rider) {
@@ -487,23 +429,47 @@ class FirebaseImageUploader implements ImageUploader {
 
   final FirebaseStorage _storage;
 
+  /// The largest photo that may be chosen. It is made smaller before it
+  /// is sent, so a photo straight from a phone camera is fine.
+  static const maxPickBytes = 12 * 1024 * 1024;
+
+  /// The largest file the storage rules accept.
   static const maxBytes = 2 * 1024 * 1024;
   static const _types = {'image/png', 'image/jpeg', 'image/webp'};
 
   @override
   Future<String?> pickAndUpload() async {
-    final image = await pickImageFile();
-    if (image == null) return null;
-    if (!_types.contains(image.mimeType)) {
+    final picked = await pickImageFile();
+    if (picked == null) return null;
+    if (!_types.contains(picked.mimeType)) {
       throw const AdminFailure('Choose a PNG, JPG or WebP image.');
     }
-    if (image.bytes.length > maxBytes) {
+    if (picked.bytes.length > maxPickBytes) {
+      throw const AdminFailure(
+          'That image is over 12 MB. Choose a smaller one.');
+    }
+    // Stored no larger than a phone needs: quicker for customers to
+    // load and cheaper to send.
+    final small = await shrinkPhoto(picked.bytes, picked.mimeType);
+    if (small.bytes.length > maxBytes) {
       throw const AdminFailure(
           'That image is over 2 MB. Choose a smaller one.');
     }
-    final safeName = image.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final base = picked.name
+        .replaceAll(RegExp(r'\.[A-Za-z0-9]+$'), '')
+        .replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    final extension = switch (small.mimeType) {
+      'image/png' => 'png',
+      'image/webp' => 'webp',
+      _ => 'jpg',
+    };
+    final image = (
+      name: '$base.$extension',
+      mimeType: small.mimeType,
+      bytes: small.bytes,
+    );
     final ref = _storage
-        .ref('products/${DateTime.now().millisecondsSinceEpoch}_$safeName');
+        .ref('products/${DateTime.now().millisecondsSinceEpoch}_${image.name}');
     try {
       await ref.putData(
         image.bytes,

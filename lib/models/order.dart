@@ -121,6 +121,8 @@ class Order {
     this.couponCode,
     this.couponDiscountPaise = 0,
     this.cancelledBy,
+    this.cancelReason,
+    this.priceCheckNote,
     this.isCourier = false,
     this.courierEta,
     this.courierName,
@@ -179,6 +181,12 @@ class Order {
 
   /// "customer" when the customer cancelled the order in their app.
   final String? cancelledBy;
+
+  /// Set by the server: `price_check` when the order's total was below
+  /// the store's prices, with what it found in [priceCheckNote].
+  final String? cancelReason;
+  final String? priceCheckNote;
+  bool get cancelledForPrice => cancelReason == 'price_check';
 
   /// Web address of the photo the rider took when handing the order over.
   final String? deliveryPhotoUrl;
@@ -283,8 +291,9 @@ class Order {
   /// Still to be collected online or in cash after the wallet.
   int get payablePaise => totalPaise - walletAppliedPaise;
 
-  /// Whether the admin console still has wallet work to do for this order:
-  /// an invite reward to check, or wallet money to return.
+  /// Whether the server still has wallet work to do for this order: an
+  /// invite reward to check, or wallet money to return. Both are done by
+  /// server functions within seconds; this console only reads the state.
   bool get needsSettlement =>
       (status == OrderStatus.delivered && !referralChecked) ||
       (status == OrderStatus.cancelled &&
@@ -339,6 +348,8 @@ class Order {
         couponCode: couponCode,
         couponDiscountPaise: couponDiscountPaise,
         cancelledBy: cancelledBy,
+        cancelReason: cancelReason,
+        priceCheckNote: priceCheckNote,
         isCourier: isCourier,
         courierEta: courierEta,
         courierName: courierName,
@@ -387,6 +398,8 @@ class Order {
         couponCode: couponCode,
         couponDiscountPaise: couponDiscountPaise,
         cancelledBy: cancelledBy,
+        cancelReason: cancelReason,
+        priceCheckNote: priceCheckNote,
         isCourier: isCourier,
         courierEta: courierEta,
         courierName: courierName ?? this.courierName,
@@ -447,6 +460,8 @@ class Order {
         couponDiscountPaise:
             (map['couponDiscountPaise'] as num?)?.toInt() ?? 0,
         cancelledBy: map['cancelledBy'] as String?,
+        cancelReason: map['cancelReason'] as String?,
+        priceCheckNote: map['priceCheckNote'] as String?,
         isCourier: map['deliveryType'] == 'courier',
         courierEta: map['courierEta'] as String?,
         courierName: map['courierName'] as String?,

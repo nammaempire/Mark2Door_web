@@ -95,7 +95,12 @@ class Product {
   final Map<String, StoreStock> storeStock;
 
   /// "In stock" as store [storeId] has it (null: the business as a whole).
-  bool inStockAt(String? storeId) => storeStock[storeId]?.inStock ?? inStock;
+  bool inStockAt(String? storeId) =>
+      inStock && (storeStock[storeId]?.inStock ?? true);
+
+  /// True when the product is switched off for every store with the main
+  /// "In stock" switch, which a store's own switch cannot override.
+  bool get offEverywhere => !inStock;
 
   /// Units left at store [storeId]; null when not counted there.
   int? stockQtyAt(String? storeId) => storeStock.containsKey(storeId)

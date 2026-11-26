@@ -482,6 +482,7 @@ class _DeliveryPhoto extends StatelessWidget {
   Widget _image({required BoxFit fit}) => Image.network(
         url,
         fit: fit,
+        webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
         loadingBuilder: (context, child, progress) => progress == null
             ? child
             : const Center(child: CircularProgressIndicator()),
@@ -724,6 +725,13 @@ class _OrderDialog extends ConsumerWidget {
               if (order.status == OrderStatus.cancelled &&
                   order.cancelledBy == 'customer')
                 _line('Cancelled by', 'Customer, in the app'),
+              if (order.status == OrderStatus.cancelled &&
+                  order.cancelledForPrice)
+                _line(
+                  'Cancelled by',
+                  'Price check. ${order.priceCheckNote ?? 'The total was '
+                      'below the store prices.'}',
+                ),
               _line('Rider', order.riderName ?? 'Not assigned'),
               if (order.riderRating != null)
                 _line('Delivery rating', '${order.riderRating} of 5 stars'),

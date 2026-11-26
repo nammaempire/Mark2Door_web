@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/env.dart';
+import '../../core/providers.dart';
 
 /// One of the business's shops. Each store has its own delivery pincodes,
 /// stock, riders and orders; a customer's pincode decides which store
@@ -134,8 +135,17 @@ final storesProvider = StreamProvider<List<Store>>(
 );
 
 /// The store this admin is tied to; null for a main admin.
-final adminStoreIdProvider = FutureProvider<String?>(
-  (ref) => ref.watch(storesRepositoryProvider).storeOfSignedInAdmin(),
+final adminStoreIdProvider = FutureProvider<String?>((ref) {
+  // Looked up again whenever someone else signs in on this browser.
+  ref.watch(authStateProvider);
+  return ref.watch(storesRepositoryProvider).storeOfSignedInAdmin();
+});
+
+/// True for a store login: someone who manages one store only. Such a
+/// login sees its own store's orders, riders, pincodes and stock, and
+/// none of the business-wide pages. The database rules enforce the same.
+final isStoreStaffProvider = Provider<bool>(
+  (ref) => ref.watch(adminStoreIdProvider).valueOrNull != null,
 );
 
 /// The store a main admin has chosen to look at; null means all stores.

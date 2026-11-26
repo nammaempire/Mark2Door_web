@@ -127,8 +127,37 @@ class RiderDocumentsDialog extends StatelessWidget {
                   ? Image.network(
                       url,
                       fit: BoxFit.contain,
-                      errorBuilder: (_, __, ___) =>
-                          const Text('Photo could not be loaded'),
+                      // Storage photos do not allow the browser to read
+                      // their bytes from another site; shown as a plain
+                      // picture element instead when that happens.
+                      webHtmlElementStrategy: WebHtmlElementStrategy.fallback,
+                      errorBuilder: (_, error, ___) {
+                        debugPrint('Rider document photo failed: $error');
+                        return Padding(
+                          padding: const EdgeInsets.all(10),
+                          child: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Text('Photo could not be loaded'),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  'Copy this link into a new tab to open it:',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: AppColors.textMuted,
+                                  ),
+                                ),
+                                SelectableText(
+                                  url,
+                                  maxLines: 2,
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
                     )
                   : const Text(
                       'No photo',

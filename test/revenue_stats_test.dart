@@ -274,7 +274,7 @@ void main() {
 
       expect(customers.map((c) => c.name), ['Ravi', 'Asha R']);
       final asha = customers.last;
-      expect(asha.orders, hasLength(3));
+      expect(asha.orderCount, 3);
       expect(asha.spentPaise, 12000);
       expect(asha.lastOrderAt, DateTime(2026, 11, 12));
     });

@@ -352,7 +352,30 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
   final _Store<List<Order>> _orders;
 
   @override
-  Stream<List<Order>> watchOrders() => _orders.watch();
+  Future<List<Order>> fetchOrdersBetween(
+    DateTime from,
+    DateTime to, {
+    String? storeId,
+    int limit = 3000,
+  }) async {
+    final start = DateTime(from.year, from.month, from.day);
+    final end = DateTime(to.year, to.month, to.day + 1);
+    final found = [
+      for (final o in await watchOrders(storeId: storeId).first)
+        if (!o.createdAt.isBefore(start) && o.createdAt.isBefore(end)) o,
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    return found.take(limit).toList();
+  }
+
+  @override
+  Stream<List<Order>> watchOrders({String? storeId}) => storeId == null
+      ? _orders.watch()
+      : _orders.watch().map(
+          (all) => [
+            for (final o in all)
+              if (o.storeId == storeId) o,
+          ],
+        );
 
   @override
   Future<void> updateStatus(String orderId, OrderStatus status) async {
@@ -414,9 +437,6 @@ class FakeOrdersAdminRepository implements OrdersAdminRepository {
     ]);
   }
 
-  /// Sample data has no wallets, so there is nothing to settle.
-  @override
-  Future<void> settle(Order order) async {}
 
   static const _customers = [
     (
@@ -774,7 +794,14 @@ class FakeRidersAdminRepository implements RidersAdminRepository {
   int _seq = 10;
 
   @override
-  Stream<List<Rider>> watchRiders() => _riders.watch();
+  Stream<List<Rider>> watchRiders({String? storeId}) => storeId == null
+      ? _riders.watch()
+      : _riders.watch().map(
+          (all) => [
+            for (final r in all)
+              if (r.storeId == storeId) r,
+          ],
+        );
 
   @override
   Future<void> saveRider(Rider rider) async {

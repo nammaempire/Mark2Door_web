@@ -8,9 +8,20 @@ import 'package:flutter/material.dart';
 /// * `christmas`: a spinning gift box in falling snow.
 /// * `newYear`: the coming year in swaying 3D numerals, with fireworks.
 /// * `pongal`: a turning Pongal pot boiling over, under a spinning sun.
+/// * `christmasTree`: a Christmas tree at night with a string of lights
+///   circling it and a turning star.
+/// * `newYearBalloons`: the coming year on four floating balloons.
+/// * `pongalKites`: kites turning in the wind over the harvest fields.
 ///
 /// This file is kept identical in the admin web and the customer app.
-const festiveLayouts = <String>['christmas', 'newYear', 'pongal'];
+const festiveLayouts = <String>[
+  'christmas',
+  'christmasTree',
+  'newYear',
+  'newYearBalloons',
+  'pongal',
+  'pongalKites',
+];
 
 /// Draws one of the [festiveLayouts]. [scale] is the card height divided
 /// by the height the measurements were designed at (158), and [text] is
@@ -31,6 +42,9 @@ class FestiveBanner extends StatefulWidget {
   static List<Color> colorsFor(String kind) => switch (kind) {
         'newYear' => const [Color(0xFF2B1B6B), Color(0xFF0B0F33)],
         'pongal' => const [Color(0xFFFFB627), Color(0xFFE8590C)],
+        'christmasTree' => const [Color(0xFF14506E), Color(0xFF071E33)],
+        'newYearBalloons' => const [Color(0xFFC2185B), Color(0xFF4A148C)],
+        'pongalKites' => const [Color(0xFF29B6D8), Color(0xFF0B6E99)],
         _ => const [Color(0xFF0F7A4F), Color(0xFF7A1022)],
       };
 
@@ -142,6 +156,20 @@ class _FestivePainter extends CustomPainter {
         _fireworks(canvas, size);
         _year3d(canvas, hero);
         _confetti(canvas, size);
+      case 'christmasTree':
+        _twinkles(canvas, size, 30);
+        _snow(canvas, size, far: true);
+        _ground(canvas, size);
+        _tree(canvas, hero);
+        _snow(canvas, size, far: false);
+      case 'newYearBalloons':
+        _twinkles(canvas, size, 40);
+        _balloons(canvas, hero);
+        _confetti(canvas, size);
+      case 'pongalKites':
+        _sun(canvas, hero.translate(-6 * s, 62 * s));
+        _fields(canvas, size);
+        _kites(canvas, hero);
       case 'pongal':
         _sun(canvas, hero);
         _sugarcane(canvas, hero);
@@ -690,6 +718,363 @@ class _FestivePainter extends CustomPainter {
           ..color = Colors.white.withAlpha((110 * (1 - rise)).round())
           ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2 * s),
       );
+    }
+  }
+
+  // --- Shared ------------------------------------------------------------
+
+  /// Small four-pointed stars that fade in and out across the card.
+  void _twinkles(Canvas canvas, Size size, int salt) {
+    for (var i = 0; i < 14; i++) {
+      final glow = (math.sin(_tau * (t * (2 + i % 3) + _rand(i, salt))) + 1) / 2;
+      final centre = Offset(
+        _rand(i, salt + 1) * size.width,
+        _rand(i, salt + 2) * size.height * 0.8,
+      );
+      final r = (1.5 + _rand(i, salt + 3) * 2.5) * s * (0.5 + glow * 0.5);
+      canvas.drawPath(
+        Path()
+          ..moveTo(centre.dx, centre.dy - r)
+          ..quadraticBezierTo(centre.dx, centre.dy, centre.dx + r, centre.dy)
+          ..quadraticBezierTo(centre.dx, centre.dy, centre.dx, centre.dy + r)
+          ..quadraticBezierTo(centre.dx, centre.dy, centre.dx - r, centre.dy)
+          ..quadraticBezierTo(centre.dx, centre.dy, centre.dx, centre.dy - r)
+          ..close(),
+        Paint()..color = Colors.white.withAlpha((60 + glow * 170).round()),
+      );
+    }
+  }
+
+  /// A five-pointed star around [centre]; [squash] narrows it sideways,
+  /// as a flat star looks when it turns away.
+  Path _starPath(Offset centre, double outer, double squash) {
+    final path = Path();
+    for (var i = 0; i < 10; i++) {
+      final r = i.isEven ? outer : outer * 0.45;
+      final a = -math.pi / 2 + i * math.pi / 5;
+      final point = Offset(
+        centre.dx + math.cos(a) * r * squash,
+        centre.dy + math.sin(a) * r,
+      );
+      i == 0 ? path.moveTo(point.dx, point.dy) : path.lineTo(point.dx, point.dy);
+    }
+    return path..close();
+  }
+
+  // --- Christmas tree ----------------------------------------------------
+
+  /// A tree with a string of lights wound round it. The string turns, so
+  /// each light passes behind the tree (drawn first, dim and small) and
+  /// then across the front (drawn last, bright and large).
+  void _tree(Canvas canvas, Offset c) {
+    final base = c.dy + 46 * s; // where the lowest branches end
+    final height = 96 * s;
+    final top = base - height;
+
+    // One light on the string: [h] is how far up the tree it hangs.
+    void light(int i, {required bool front}) {
+      const count = 22;
+      final h = (i + 0.5) / count;
+      final a = _tau * (h * 3.5 + t * 2);
+      final depth = math.sin(a); // -1 behind the tree .. 1 in front
+      if ((depth > 0) != front) return;
+      final radius = (48 - 42 * h) * s;
+      final at = Offset(
+        c.dx + math.cos(a) * radius,
+        base - 6 * s - h * (height - 14 * s) + depth * radius * 0.16,
+      );
+      const colors = [
+        Color(0xFFFFD166),
+        Color(0xFFFF5C5C),
+        Color(0xFF7CE0FF),
+        Color(0xFFFF9FF3),
+      ];
+      final blink = (math.sin(_tau * (t * 6 + _rand(i, 61))) + 1) / 2;
+      final size = (front ? 2.6 + depth * 1.2 : 1.6) * s;
+      final color = colors[i % colors.length];
+      if (front) {
+        canvas.drawCircle(
+          at,
+          size * 2.2,
+          Paint()
+            ..color = color.withAlpha((50 + blink * 70).round())
+            ..maskFilter = MaskFilter.blur(BlurStyle.normal, 3 * s),
+        );
+      }
+      canvas.drawCircle(
+        at,
+        size,
+        Paint()..color = color.withAlpha(front ? 255 : 90),
+      );
+    }
+
+    // Shadow on the snow, then the lights behind the tree.
+    canvas.drawOval(
+      Rect.fromCenter(
+        center: Offset(c.dx, base + 16 * s),
+        width: 84 * s,
+        height: 12 * s,
+      ),
+      Paint()..color = const Color(0x33000000),
+    );
+    for (var i = 0; i < 22; i++) {
+      light(i, front: false);
+    }
+
+    // Trunk.
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        Rect.fromLTWH(c.dx - 6 * s, base - 4 * s, 12 * s, 22 * s),
+        Radius.circular(2 * s),
+      ),
+      Paint()..color = const Color(0xFF6D4326),
+    );
+
+    // Three tiers, widest at the bottom, each lit from the left.
+    for (var tier = 0; tier < 3; tier++) {
+      final half = (46 - tier * 11) * s;
+      final tierBase = base - tier * 27 * s;
+      final tierTop = tier == 2 ? top : tierBase - 44 * s;
+      final rect = Rect.fromLTRB(c.dx - half, tierTop, c.dx + half, tierBase);
+      canvas.drawPath(
+        Path()
+          ..moveTo(c.dx, tierTop)
+          ..lineTo(c.dx + half, tierBase)
+          ..quadraticBezierTo(c.dx, tierBase + 7 * s, c.dx - half, tierBase)
+          ..close(),
+        Paint()
+          ..shader = const LinearGradient(
+            colors: [Color(0xFF43C77A), Color(0xFF178A4C), Color(0xFF0A5A30)],
+            stops: [0, 0.55, 1],
+          ).createShader(rect),
+      );
+    }
+
+    for (var i = 0; i < 22; i++) {
+      light(i, front: true);
+    }
+
+    // The star on top turns like a weather vane and glows.
+    final glow = (math.sin(_tau * t * 4) + 1) / 2;
+    final star = Offset(c.dx, top - 3 * s);
+    canvas
+      ..drawCircle(
+        star,
+        (13 + glow * 4) * s,
+        Paint()
+          ..color = const Color(0xFFFFE08A).withAlpha((70 + glow * 60).round())
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, 5 * s),
+      )
+      ..drawPath(
+        _starPath(
+          star,
+          10 * s,
+          math.cos(_tau * t * 2).abs().clamp(0.25, 1.0),
+        ),
+        Paint()..color = const Color(0xFFFFD54F),
+      );
+  }
+
+  // --- New Year balloons -------------------------------------------------
+
+  /// Four balloons, one for each numeral of the year, bobbing on their
+  /// strings. The light on each slides across as it turns.
+  void _balloons(Canvas canvas, Offset c) {
+    final digits = '$year'.padLeft(4, '0');
+    const colors = [
+      Color(0xFFFFD166),
+      Color(0xFF7CE0FF),
+      Color(0xFFFF8FB1),
+      Color(0xFFB8F2A6),
+    ];
+    const heights = [-6.0, -24.0, -12.0, -30.0];
+    final knot = Offset(c.dx, c.dy + 74 * s); // where the strings gather
+
+    for (var i = 0; i < 4; i++) {
+      final phase = i * 0.23;
+      final bob = math.sin(_tau * (t * 2 + phase)) * 5 * s;
+      final sway = math.sin(_tau * (t + phase)) * 4 * s;
+      final turn = math.sin(_tau * (t * 2 + phase)); // -1 .. 1
+      final centre = Offset(
+        c.dx + (i - 1.5) * 29 * s + sway,
+        c.dy + heights[i] * s + bob,
+      );
+      final w = 15.5 * s, h = 18.5 * s;
+      final body = Rect.fromCenter(center: centre, width: w * 2, height: h * 2);
+
+      // String, curving down to the knot.
+      canvas.drawPath(
+        Path()
+          ..moveTo(centre.dx, centre.dy + h + 3 * s)
+          ..quadraticBezierTo(
+            centre.dx - sway * 2,
+            (centre.dy + h + knot.dy) / 2,
+            knot.dx,
+            knot.dy,
+          ),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.9 * s
+          ..color = Colors.white.withAlpha(150),
+      );
+
+      // Body: a ball of colour with the light sliding across it.
+      canvas
+        ..drawOval(
+          body,
+          Paint()
+            ..shader = RadialGradient(
+              center: Alignment(-0.35 + turn * 0.3, -0.45),
+              radius: 1.05,
+              colors: [
+                Color.lerp(colors[i], Colors.white, 0.75)!,
+                colors[i],
+                Color.lerp(colors[i], Colors.black, 0.35)!,
+              ],
+              stops: const [0, 0.45, 1],
+            ).createShader(body),
+        )
+        // The tied end.
+        ..drawPath(
+          Path()
+            ..moveTo(centre.dx, centre.dy + h - 1 * s)
+            ..lineTo(centre.dx - 3 * s, centre.dy + h + 4 * s)
+            ..lineTo(centre.dx + 3 * s, centre.dy + h + 4 * s)
+            ..close(),
+          Paint()..color = Color.lerp(colors[i], Colors.black, 0.25)!,
+        );
+
+      // The numeral, narrowing a little as the balloon turns.
+      final numeral = TextPainter(
+        text: TextSpan(
+          text: digits[i],
+          style: TextStyle(
+            fontSize: 21 * s,
+            height: 1,
+            fontFamily: 'Roboto',
+            fontWeight: FontWeight.w900,
+            color: const Color(0xFF3A0F5C),
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      canvas
+        ..save()
+        ..translate(centre.dx + turn * 2 * s, centre.dy)
+        ..scale(0.8 + 0.2 * math.cos(turn * math.pi / 2), 1);
+      numeral.paint(canvas, Offset(-numeral.width / 2, -numeral.height / 2));
+      canvas.restore();
+    }
+  }
+
+  // --- Pongal kites ------------------------------------------------------
+
+  /// Harvest fields along the bottom, in two rolling rows.
+  void _fields(Canvas canvas, Size size) {
+    void row(double rise, double sag, Color color) {
+      canvas.drawPath(
+        Path()
+          ..moveTo(size.width * 0.3, size.height)
+          ..quadraticBezierTo(
+            size.width * 0.7,
+            size.height - sag * s,
+            size.width,
+            size.height - rise * s,
+          )
+          ..lineTo(size.width, size.height)
+          ..close(),
+        Paint()..color = color,
+      );
+    }
+
+    row(30, 46, const Color(0xFF7CB518));
+    row(14, 26, const Color(0xFF4F9A1F));
+  }
+
+  /// Three kites at different distances. Each leans with the wind and
+  /// turns side-on and back, so its two halves swap light and shade, and
+  /// its tail ripples behind it.
+  void _kites(Canvas canvas, Offset c) {
+    const kites = [
+      // dx, dy, size, colours of the two halves
+      (-34.0, -4.0, 12.0, Color(0xFFFFE066), Color(0xFFF4A300)),
+      (30.0, -6.0, 15.0, Color(0xFFFF8FB1), Color(0xFFD81B60)),
+      (-4.0, -34.0, 20.0, Color(0xFFFF7043), Color(0xFFC62828)),
+    ];
+    for (var i = 0; i < kites.length; i++) {
+      final (dx, dy, size, light, dark) = kites[i];
+      final phase = i * 0.31;
+      final centre = Offset(
+        c.dx + dx * s + math.sin(_tau * (t + phase)) * 7 * s,
+        c.dy + dy * s + math.cos(_tau * (t * 2 + phase)) * 4 * s,
+      );
+      final lean = math.sin(_tau * (t * 2 + phase)) * 0.3;
+      final yaw = math.cos(_tau * (t + phase)); // 1 facing us .. -1 turned
+      final w = size * s * (0.35 + 0.65 * yaw.abs());
+      final h = size * s * 1.25;
+
+      // The line down to whoever is flying it, off the card.
+      canvas.drawLine(
+        centre,
+        Offset(centre.dx - 70 * s, centre.dy + 150 * s),
+        Paint()
+          ..strokeWidth = 0.7 * s
+          ..color = Colors.white.withAlpha(120),
+      );
+
+      canvas
+        ..save()
+        ..translate(centre.dx, centre.dy)
+        ..rotate(lean);
+
+      // Tail: a ribbon rippling away from the bottom point.
+      final tail = Path()..moveTo(0, h * 1.1);
+      for (var k = 1; k <= 8; k++) {
+        tail.lineTo(
+          math.sin(_tau * (t * 4 + phase) + k * 0.9) * (2 + k * 0.6) * s,
+          h * 1.1 + k * size * 0.42 * s,
+        );
+      }
+      canvas.drawPath(
+        tail,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1.6 * s
+          ..strokeCap = StrokeCap.round
+          ..strokeJoin = StrokeJoin.round
+          ..color = light,
+      );
+
+      // The two halves: the one turned towards the sun is the light one.
+      final left = Path()
+        ..moveTo(0, -h)
+        ..lineTo(-w, 0)
+        ..lineTo(0, h * 1.1)
+        ..close();
+      final right = Path()
+        ..moveTo(0, -h)
+        ..lineTo(w, 0)
+        ..lineTo(0, h * 1.1)
+        ..close();
+      canvas
+        ..drawPath(left, Paint()..color = yaw >= 0 ? light : dark)
+        ..drawPath(right, Paint()..color = yaw >= 0 ? dark : light)
+        // The two sticks.
+        ..drawLine(
+          Offset(0, -h),
+          Offset(0, h * 1.1),
+          Paint()
+            ..strokeWidth = 0.8 * s
+            ..color = const Color(0x66000000),
+        )
+        ..drawLine(
+          Offset(-w, 0),
+          Offset(w, 0),
+          Paint()
+            ..strokeWidth = 0.8 * s
+            ..color = const Color(0x66000000),
+        )
+        ..restore();
     }
   }
 
